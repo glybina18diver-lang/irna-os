@@ -72,6 +72,39 @@ build/irna.iso — 4.9M, bootable via grub-mkrescue (BIOS/i386 PC)
 - Автор коммитов и владелец репозитория: **glybina18diver-lang** `<glybina18diver-lang@users.noreply.github.com>`.
 - Все исторические коммиты переписаны (`git filter-branch`), глобальный `git config` обновлён — все будущие коммиты автоматически пишутся от этого автора.
 
+## 2026-10-24 — восстановление репозитория и объединение баз
+
+### Контекст
+После удаления и повторного создания репозитория на GitHub локальная связь с ним была потеряна.
+Остались два снимка: `workspace_last` (рабочая область агента, M1) и `irna-os-main`
+(скачанный репозиторий до очистки, M0).
+
+### Сравнение
+- `irna-os-main`: 25 файлов, этап M0.
+- `workspace_last`: 31 исходный файл (плюс 116 артефактов `build/`), этап M1.
+- Файлов, которые есть только в M0-снимке, нет: он полностью входит в M1.
+- Отличаются 6 файлов (`main.rs`, `arch.asm`, `serial.rs`, `linker.ld`, `ci/build.sh`,
+  `ci/run-qemu.sh`) — в M1 они новее.
+- Только в M1: `HISTORY.md`, `bootinfo.rs`, `gdt.rs`, `heap.rs`, `pmm.rs`, `vga.rs`.
+
+### Что сделано
+- Создан чистый репозиторий `C:\Projects\OS\irna-os` (31 файл, без `build/` и старого `.git`).
+- Инициализирован git, ветка `main`, автор — `Kay <glybina18diver-lang@users.noreply.github.com>`.
+- Подключён remote `https://github.com/glybina18diver-lang/irna-os.git`, выполнен push.
+- Удалён ошибочный `workspace2.zip`; `LICENSE` приведён к `Copyright (c) 2026 Kay`.
+- Добавлены `AGENTS.md`, `docs/STATE.md`, `docs/BUILD.md`, `docs/HANDOFF.md`.
+- Добавлен GitHub Actions workflow `.github/workflows/build.yml` (сборка ISO + артефакты).
+- Установлен портативный QEMU; Git и GitHub CLI уже портативные.
+- WSL2 и виртуальные машины на ноутбуке не используются.
+
+### Коммит
+- `2d9b88e` — M0+M1: восстановленная полная кодовая база.
+
+### Дальше
+M1: IDT/PIC, PIT, PS/2, framebuffer, syscall, планировщик.
+
+---
+
 ## Правила ведения файла
 - После каждого завершённого этапа добавлять новый раздел с датой.
 - Фиксировать корневые причины ошибок (не обходки), артефакты, хеш-подтверждения (checksum, rc) и коммиты.

@@ -1,0 +1,53 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            nasm \
+            grub-pc-bin \
+            grub-common \
+            xorriso \
+            mtools
+
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rust-src
+
+      - name: Build kernel and ISO
+        run: |
+          chmod +x ci/build.sh
+          ./ci/build.sh
+
+      - name: Upload ISO
+        uses: actions/upload-artifact@v4
+        with:
+          name: irna-iso
+          path: build/irna.iso
+          if-no-files-found: error
+
+      - name: Upload kernel ELF
+        uses: actions/upload-artifact@v4
+        with:
+          name: irna-kernel-elf
+          path: build/irna-kernel.elf
+          if-no-files-found: error

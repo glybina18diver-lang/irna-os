@@ -2,18 +2,18 @@
 
 Легенда: [ ] не начато | [~] в работе | [x] готово
 
-## M0 — Инструменты и hello-world  [ ]
-- [ ] Linux-тулчейн (WSL2 Ubuntu или второй диск) + rustup + clang + cmake + Qt6 + qemu-system-x86_64
-- [ ] Скелет репозитория (структура из SPEC.md §7)
-- [ ] Ядро: print имени ОС (из branding-константы) в serial console из QEMU
-- [ ] Скрипты ci/build.sh, ci/run-qemu.sh
+## M0 — Инструменты и hello-world  [x]
+- [x] Linux-тулчейн (WSL2 Ubuntu или второй диск) + rustup + clang + cmake + Qt6 + qemu-system-x86_64
+- [x] Скелет репозитория (структура из SPEC.md §7)
+- [x] Ядро: print имени ОС (из branding-константы) в serial console из QEMU
+- [x] Скрипты ci/build.sh, ci/run-qemu.sh
 
-## M1 — Базовое ядро (Rust)  [ ]
-- [ ] GDT/IDT, обработчики прерываний, PIC
-- [ ] Физический аллокатор (frame allocator)
-- [ ] Виртуальная память (paging), heap + kmalloc
+## M1 — Базовое ядро (Rust)  [~]
+- [~] GDT/IDT, обработчики прерываний, PIC  (GDT+TSS готовы; IDT/PIC — нет)
+- [x] Физический аллокатор (frame allocator)
+- [x] Виртуальная память (paging), heap + kmalloc  (identity map + bump-heap)
 - [ ] Таймер (PIT) + cooperative планировщик
-- [ ] Framebuffer-вывод (VGA text -> LFB)
+- [~] Framebuffer-вывод (VGA text -> LFB)  (VGA text готов; LFB — нет)
 - [ ] PS/2 клавиатура (scancode set 2, EN/RU базовая раскладка)
 - [ ] syscall/sysret + libc-mini (write/read/exit)
 - [ ] Вытесняющий многозадачный планировщик
@@ -54,3 +54,5 @@
 ---
 Журнал изменений статуса:
 - 2026-10-19: создана дорожная карта, этапы M0–M6+. Решения D-001…D-007 зафиксированы.
+- 2026-10-23: M0 закрыт (сборка + QEMU check SUCCESS).
+- 2026-10-24: репозиторий восстановлен; M1 в работе — готовы bootinfo, PMM, GDT+TSS, heap, VGA text.
