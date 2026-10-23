@@ -1,0 +1,6 @@
+# bootloader/config.toml — конфигурация загрузчика (реестр имени: branding.md, строка B2)
+# Переименование ОС в загрузочной строке = правка display_name ниже + пересборка.
+
+display_name = "ИрНа"        # B2: загрузочная строка «ИрНа booting...»
+boot_line_format = "{name} booting..."
+identifier = "irna"          # технический ASCII-идентификатор (не меняется)

@@ -1,0 +1,4 @@
+build/
+kernel/target/
+*.o
+*.elf

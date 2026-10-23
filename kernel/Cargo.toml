@@ -1,0 +1,26 @@
+# kernel/Cargo.toml — ядро ОС «ИрНа» (Rust, no_std). Этап M0.
+[package]
+name = "irna-kernel"
+version = "0.0.1"
+edition = "2021"
+authors = ["IrNa OS project"]
+license = "MIT"
+description = "Yadro (kernel) operacionnoj sistemy IrNa. Rust, no_std."
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
+lto = false        # включим позже, когда появится свой линковщик-обвязка
+
+[dependencies]
+# M0: зависимостей нет — только core. crate-type bin (no_main + своя сборка через ci/build.sh).
+
+[[bin]]
+name = "irna-kernel"
+path = "src/main.rs"
+
+# ИСПРАВЛЕНИЕ ДЕФЕКТА M0: trampoline (arch.asm) собирается через build.rs
+# (nasm -f elf64) и подключается к линковке cargo — раньше arch.asm линковался
+# отдельным `ld` вне cargo и не попадал в итоговый ISO.

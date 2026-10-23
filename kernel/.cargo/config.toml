@@ -1,0 +1,14 @@
+# kernel/.cargo/config.toml — целевая платформа ядра (M0)
+[build]
+target = "x86_64-unknown-none"
+
+[target.x86_64-unknown-none]
+rustflags = [
+    # не сливать .text разных объектов в один сегмент произвольно —
+    # помогает корректной раскладке нашего линкер-скрипта
+    "-C", "link-arg=-zseparate-code",
+    # no_std: стандартныеCRT-стабы не нужны; запрещаем PIE (GRUB MB2 ждёт
+    # non-relocatable ELF с адресами из линкер-скрипта, ядро на 1 МиБ)
+    "-C", "relocation-model=static",
+    "-C", "link-arg=-no-pie",
+]
