@@ -74,6 +74,25 @@ pub fn write_hex_u64(v: u64) {
     }
 }
 
+/// Вывод u64 в десятичном виде (без ведущих нулей).
+pub fn write_dec_u64(mut v: u64) {
+    if v == 0 {
+        write_byte(b'0');
+        return;
+    }
+    let mut buf = [0u8; 20];
+    let mut i = 0;
+    while v > 0 {
+        buf[i] = b'0' + (v % 10) as u8;
+        v /= 10;
+        i += 1;
+    }
+    while i > 0 {
+        i -= 1;
+        write_byte(buf[i]);
+    }
+}
+
 /// Хексадамп строки — надёжный способ увидеть UTF-8 (кириллицу) в сырых логах.
 pub fn write_str_hex(label: &str, s: &str) {
     write_str(label);

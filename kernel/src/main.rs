@@ -8,12 +8,16 @@ extern crate alloc;
 
 mod bootinfo;
 mod brand;
+mod console;
+mod fb;
+mod font;
 mod gdt;
 mod heap;
 mod idt;
 mod io;
 mod irq;
 mod keyboard;
+mod paging;
 mod pic;
 mod pit;
 mod pmm;
@@ -99,6 +103,37 @@ pub extern "C" fn kernel_main() -> ! {
     pic::unmask(1);
     serial::write_str("PS/2 keyboard ready (IRQ1)\n");
 
+    // --- 3e. видеоконсоль: LFB из тега 8, иначе VGA text ---
+    let fb_ok = match info.fb {
+        Some(f) => {
+            serial_line("LFB addr         = ", f.addr);
+            serial_line("LFB pitch        = ", f.pitch as u64);
+            serial_line("LFB width        = ", f.width as u64);
+            serial_line("LFB height       = ", f.height as u64);
+            serial_line("LFB bpp          = ", f.bpp as u64);
+            let ok = fb::init(&f);
+            if ok {
+                let (w, h, cols, rows) = fb::stats();
+                serial::write_str("framebuffer console OK (");
+                serial::write_dec_u64(w as u64);
+                serial::write_str("x");
+                serial::write_dec_u64(h as u64);
+                serial::write_str(", ");
+                serial::write_dec_u64(cols as u64);
+                serial::write_str("x");
+                serial::write_dec_u64(rows as u64);
+                serial::write_str(" chars)\n");
+            } else {
+                serial::write_str("WARN: LFB не отображён — остаёмся в VGA text\n");
+            }
+            ok
+        }
+        None => {
+            serial::write_str("LFB нет в MBI — VGA text fallback\n");
+            false
+        }
+    };
+
     // --- 4. куча ядра (bump-пул 1 МиБ) + проверка через global_allocator ---
     {
         use core::alloc::{GlobalAlloc, Layout};
@@ -111,27 +146,33 @@ pub extern "C" fn kernel_main() -> ! {
         }
     }
 
-    // --- 5. VGA-текстовая консоль (0xB8000, identity-map) ---
-    unsafe { vga::clear() };
-    vga::println("ИрНа OS — этап M1: базовое ядро");
-    vga::println("-----------------------------");
-    vga::print("brand: ");
-    vga::println(KERNEL_NAME);
+    // --- 5. текстовая консоль: LFB или VGA text ---
+    console::clear();
+    console::println("ИрНа OS — этап M1: базовое ядро");
+    console::println("-----------------------------");
+    console::print("brand: ");
+    console::println(KERNEL_NAME);
     {
         use alloc::string::ToString;
         let s = alloc::format!("mem usable top: {} KiB", info.free_mem_top / 1024);
-        vga::println(s.as_str());
+        console::println(s.as_str());
         let s2 = alloc::format!("frames: {} free / {} total", free, total);
-        vga::println(s2.as_str());
+        console::println(s2.as_str());
         let _ = "".to_string();
     }
-    vga::println("heap: 1 MiB bump pool");
-    vga::println("IDT: 48 gates, PIC: 0x20..0x2F, PIT: 100 Hz");
-    vga::println("VGA text console OK");
-    serial::write_str("VGA text console OK\n");
+    console::println("heap: 1 MiB bump pool");
+    console::println("IDT: 48 gates, PIC: 0x20..0x2F, PIT: 100 Hz");
+    console::println("Кириллица: проверка шрифта PT Mono (10x16)");
+    if fb_ok {
+        console::println("framebuffer console OK");
+        serial::write_str("framebuffer console OK\n");
+    } else {
+        console::println("VGA text console OK");
+        serial::write_str("VGA text console OK\n");
+    }
 
     serial::write_str(KERNEL_NAME);
-    serial::write_str(" kernel: M1 subsystems OK (bootinfo/PMM/GDT/IDT/PIC/PIT/heap/VGA)\n");
+    serial::write_str(" kernel: M1 subsystems OK (bootinfo/PMM/GDT/IDT/PIC/PIT/heap/LFB)\n");
     serial::write_str("==================================================\n");
     serial::write_str("keyboard echo: нажмите клавиши (serial + VGA)\n");
 
@@ -144,19 +185,19 @@ pub extern "C" fn kernel_main() -> ! {
                     serial::write_str("key: '");
                     serial::write_char(c);
                     serial::write_str("'\n");
-                    vga::putc(c);
+                    console::putc(c);
                 }
                 keyboard::Key::Space => {
                     serial::write_str("key: Space\n");
-                    vga::putc(b' ');
+                    console::putc(b' ');
                 }
                 keyboard::Key::Enter => {
                     serial::write_str("key: Enter\n");
-                    vga::putc(b'\n');
+                    console::putc(b'\n');
                 }
                 keyboard::Key::Backspace => {
                     serial::write_str("key: Backspace\n");
-                    vga::putc(0x08);
+                    console::putc(0x08);
                 }
                 other => {
                     serial::write_str("key: ");

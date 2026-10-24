@@ -25,13 +25,16 @@ EFER_LME equ 1 << 8
 ;    стека ядра. Дальше Rust работает только с копией.
 ; Тег information request имеет type=1 (type=0 — это end tag).
 ; ИСПРАВЛЕНИЕ ДЕФЕКТА M0 v4:
-; GRUB 2.06 (Debian) не понимает request-теги framebuffer (unsupported tag 0x14) —
-; их не добавляем. Точка входа = ELF entry (`start`).
-; Serial-порт инициализируется ядром напрямую (COM1); текст рисуется в VGA RAM
-; (0xB8000 identity-map'ится страницами ниже) — отдельного MB2-запроса не требуется.
+; В M0 заголовок был собран в смешанном формате dw/dd, из-за чего GRUB читал
+; мусорные типы тегов ("unsupported tag: 0x14"). Теперь все теги канонические
+; (dd type / dd size), выровнены по 8 байт — framebuffer-тег (type=5)
+; поддерживается GRUB 2.06 (grub-core/loader/multiboot_mbi2.c).
+; Serial-порт инициализируется ядром напрямую (COM1). Текст выводится в
+; framebuffer (тег type=8 от GRUB) с откатом на VGA text (0xB8000).
+; Точка входа = ELF entry (`start`).
 ; header_length = 16 (magic/arch/len/checksum) + 12 (info request) + 4 (padding)
-;                 + 8 (terminator) = 40. Теги выравниваются по 8 байт.
-MB2_HEADER_LEN   equ 16 + 12 + 4 + 8   ; = 40
+;                 + 20 (framebuffer) + 4 (padding) + 8 (terminator) = 64.
+MB2_HEADER_LEN   equ 16 + 12 + 4 + 20 + 4 + 8   ; = 64
 MB2_CHECKSUM     equ (0 - (MB2_MAGIC + MB2_ARCH + MB2_HEADER_LEN)) & 0xFFFFFFFF ; mod 2^32
 
 section .multiboot_header
@@ -48,6 +51,18 @@ mb2_start:
     dd 12                        ; size = 4+4+4 (type, size, flags)
     dd 0                         ; flags = 0 -> полный набор тегов
     dd 0                         ; padding: следующий тег должен быть на 8-байтной границе
+
+    ; Tag: framebuffer (type=5) — просим линейный framebuffer (LFB) 1024x768x32.
+    ; Ширина/высота/глубина важны: GRUB формирует из них gfxpayload и сам
+    ; переключает видеорежим (grub-core/loader/multiboot.c:set_console).
+    ; При неудаче GRUB откатится на EGA_TEXT (flags=0, консоль не обязательна).
+    dd 5                         ; type = framebuffer
+    dd 20                        ; size = 4+4+4+4+4+4
+    dd 0                         ; flags
+    dd 1024                      ; width
+    dd 768                       ; height
+    dd 32                        ; depth (bpp)
+    dd 0                         ; padding до 8 байт
 
     ; End tag (type=0, size=8)
     dd 0                         ; type (end)
@@ -308,7 +323,9 @@ isr_common:
 
 section .bss
 align 4096
+global pml4
 pml4: resb 4096
+global pdpt
 pdpt: resb 4096
 pd_lo: resb 4096
 pd_hi: resb 4096

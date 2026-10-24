@@ -31,6 +31,41 @@ struct MemmapTag {
     // далее memory_area[entry_size / 24]
 }
 
+/// Тег 8 (framebuffer). Поля после `reserved` присутствуют только для type=1.
+#[repr(C)]
+struct FramebufferTag {
+    header: TagHeader,
+    addr: u64,
+    pitch: u32,
+    width: u32,
+    height: u32,
+    bpp: u8,
+    fb_type: u8,
+    reserved: u16,
+    red_pos: u8,
+    red_size: u8,
+    green_pos: u8,
+    green_size: u8,
+    blue_pos: u8,
+    blue_size: u8,
+}
+
+/// Линейный framebuffer, отданный загрузчиком (type=1, RGB).
+#[derive(Clone, Copy)]
+pub struct FrameBuffer {
+    pub addr: u64,
+    pub pitch: u32,
+    pub width: u32,
+    pub height: u32,
+    pub bpp: u8,
+    pub red_pos: u8,
+    pub red_size: u8,
+    pub green_pos: u8,
+    pub green_size: u8,
+    pub blue_pos: u8,
+    pub blue_size: u8,
+}
+
 /// Диагностика: адрес копии MBI, исходный EBX и magic из EAX.
 pub fn raw_ptrs() -> (u64, u64, u64) {
     unsafe {
@@ -54,6 +89,8 @@ pub struct BootInfo {
     pub mbi_size: u32,
     /// Битовая маска тегов < 64, встретившихся при разборе (для serial-дампа).
     pub tags_seen: u64,
+    /// Линейный framebuffer (тег 8, type=1). `None` — графика недоступна.
+    pub fb: Option<FrameBuffer>,
 }
 
 /// Разбор MBI. Вызывается ОДИН раз на раннем этапе, до включения прерываний.
@@ -64,6 +101,7 @@ pub fn parse() -> BootInfo {
         mbi_found: false,
         mbi_size: 0,
         tags_seen: 0,
+        fb: None,
     };
     // ВАЖНО: читаем ЗНАЧЕНИЕ статической переменной (адрес копии MBI),
     // а не адрес самой переменной. Раньше здесь был `&raw const mb_mboot_ptr`,
@@ -112,6 +150,28 @@ pub fn parse() -> BootInfo {
                                 info.free_mem_top = begin + len;
                             }
                         }
+                    }
+                }
+            }
+            if t == 8 {
+                // framebuffer: берём только RGB (type=1) с 24/32 bpp
+                let ft = tag as *const FramebufferTag;
+                if sz >= 38 && (*ft).fb_type == 1 {
+                    let bpp = (*ft).bpp;
+                    if bpp == 24 || bpp == 32 {
+                        info.fb = Some(FrameBuffer {
+                            addr: (*ft).addr,
+                            pitch: (*ft).pitch,
+                            width: (*ft).width,
+                            height: (*ft).height,
+                            bpp,
+                            red_pos: (*ft).red_pos,
+                            red_size: (*ft).red_size,
+                            green_pos: (*ft).green_pos,
+                            green_size: (*ft).green_size,
+                            blue_pos: (*ft).blue_pos,
+                            blue_size: (*ft).blue_size,
+                        });
                     }
                 }
             }
