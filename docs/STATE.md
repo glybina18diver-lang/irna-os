@@ -5,7 +5,7 @@
 **Дата:** 2026-10-24
 **Этап:** M1 (в работе)
 **Ветка:** `main`
-**Последний коммит:** `aeebf0c` — PIC remap + PIT 100 Гц, IRQ0
+**Последний коммит:** `250b956` — PS/2 клавиатура (IRQ1) + QMP-стенд
 
 ## Что сделано
 
@@ -28,6 +28,10 @@
 - `kernel/src/pit.rs` — канал 0, режим 3, 100 Гц (делитель 11931), счётчик тиков,
   `wait_ticks` (спит в `hlt`).
 - `kernel/src/irq.rs` — диспетчер IRQ, ложные IRQ7/IRQ15, счётчик неожиданных.
+- `kernel/src/keyboard.rs` — PS/2 через IRQ1: 8042 (конфиг-байт, `0xAE`,
+  `0xF4`), SPSC-кольцо 64 байта, декодер scancode set 1 (Shift, `0xE0`-
+  расширения, стрелки/Home/End/Delete/PgUp/PgDn), `poll()` без блокировок.
+  Раскладка пока US.
 - `kernel/src/heap.rs` — bump-аллокатор на 1 МиБ, `#[global_allocator]`.
 - `kernel/src/vga.rs` — текстовая консоль 80×25, UTF-8 → CP437.
   Кириллица в ROM-шрифте VGA отсутствует — нужен свой 8×16 шрифт.
@@ -62,9 +66,13 @@ PIC remapped (IRQ 0x20..0x2F)
 PIT programmed (100 Hz)
 interrupts enabled (IF=1)
 PIT: 20 ticks OK
+PS/2 keyboard ready (IRQ1)
 kernel heap alloc OK (100 bytes)
 VGA text console OK
 ИрНа kernel: M1 subsystems OK (bootinfo/PMM/GDT/IDT/PIC/PIT/heap/VGA)
+==================================================
+keyboard echo: нажмите клавиши (serial + VGA)
+key: 'a'
 ```
 
 `./ci/run-qemu.sh check` → SUCCESS, `grub-file --is-x86-multiboot2` → rc=0.
@@ -108,6 +116,22 @@ VGA text console OK
   приход IRQ0, корректный EOI (иначе второй тик не придёт) и возврат `iretq`.
 - Serial: `PIC remapped`, `PIT programmed (100 Hz)`, `PIT: 20 ticks OK`.
 
+### PS/2 клавиатура (2026-10-24)
+- `keyboard.rs`: 8042 настраивается явно — конфиг-байт (`0x20`/`0x60`):
+  bit0 IRQ1, bit6 трансляция set 2 → set 1, bit4 снят; затем `0xAE` (разрешить
+  интерфейс) и `0xF4` (включить сканирование). Без `0xF4` клавиатура после POST
+  остаётся в «scan disabled» и скан-коды не приходят вообще.
+- IRQ1 только забирает байт из порта `0x60` в SPSC-кольцо (64 байта,
+  `Acquire`/`Release`); разбор — в `poll()` главного потока. Байты мыши
+  (status bit5) отбрасываются.
+- Декодер set 1: make/break, префикс `0xE0`, Shift (`0x2A`/`0x36`), ASCII-таблица
+  с учётом Shift; стрелки/Home/End/Delete/PgUp/PgDn — отдельные `Key`.
+- `main.rs`: после `unmask(1)` — цикл `hlt` + `poll()` с эхом в serial и VGA.
+- Проверено в QEMU (run `40080649501`): `PS/2 keyboard ready (IRQ1)`,
+  затем `key: 'a'` после инъекции клавиши.
+- Локальный стенд `ci/run-qemu.ps1`: `-display none`, скрытое окно, serial через
+  TCP, клавиша — через QMP `input-send-event` (HMP `sendkey` headless не работает).
+
 ### Восстановление репозитория (2026-10-24)
 - Сравнены `workspace_last` (M1) и `irna-os-main` (M0).
 - Подтверждено: M0-снимок полностью входит в M1-рабочую область.
@@ -124,10 +148,10 @@ VGA text console OK
 
 ## Следующие шаги (M1)
 
-1. PS/2 клавиатура (IRQ1, scancode set 2 → set 1, EN/RU) — следующий шаг.
-2. Framebuffer / LFB (после VGA text).
-3. `syscall`/`sysret` + минимальный libc.
-4. Кооперативный, затем вытесняющий планировщик.
+1. Framebuffer / LFB (после VGA text) — разблокирует кириллицу в консоли.
+2. `syscall`/`sysret` + минимальный libc.
+3. Кооперативный, затем вытесняющий планировщик.
+4. Раскладка EN/RU и кириллица (после framebuffer).
 
 ## Известные проблемы и ограничения
 
