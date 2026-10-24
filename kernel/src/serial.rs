@@ -55,6 +55,20 @@ pub fn write_str(s: &str) {
     write_bytes(s.as_bytes());
 }
 
+/// Вывод u64 в hex с префиксом 0x (без ведущих нулей).
+pub fn write_hex_u64(v: u64) {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    write_str("0x");
+    let mut started = false;
+    for i in (0..16).rev() {
+        let nib = ((v >> (i * 4)) & 0xF) as usize;
+        if nib != 0 || started || i == 0 {
+            started = true;
+            write_byte(HEX[nib]);
+        }
+    }
+}
+
 /// Хексадамп строки — надёжный способ увидеть UTF-8 (кириллицу) в сырых логах.
 pub fn write_str_hex(label: &str, s: &str) {
     write_str(label);

@@ -10,6 +10,7 @@ mod bootinfo;
 mod brand;
 mod gdt;
 mod heap;
+mod idt;
 mod pmm;
 mod serial;
 mod vga;
@@ -64,6 +65,13 @@ pub extern "C" fn kernel_main() -> ! {
         gdt::init(&stack_top_addr as *const u8 as u64, &df_stack_top_addr as *const u8 as u64);
     }
     serial::write_str("GDT+TSS loaded (RSP0, IST1)\n");
+
+    // --- 3b. IDT + обработчики исключений ---
+    idt::init();
+    serial::write_str("IDT loaded (32 exception gates)\n");
+    // Smoke-тест: int3 -> #BP -> exception_handler -> iretq.
+    unsafe { core::arch::asm!("int3") };
+    serial::write_str("IDT int3 smoke OK\n");
 
     // --- 4. куча ядра (bump-пул 1 МиБ) + проверка через global_allocator ---
     {
