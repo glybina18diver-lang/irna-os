@@ -36,10 +36,14 @@ for ($c = 0x20; $c -le 0x7E; $c++) { $cps.Add($c) }
 for ($c = 0x0410; $c -le 0x044F; $c++) { $cps.Add($c) }
 $cps.Add(0x0401)
 $cps.Add(0x0451)
+$cps.Add(0x2013)  # –
+$cps.Add(0x2014)  # —
+$cps.Add(0x00AB)  # «
+$cps.Add(0x00BB)  # »
 
 $asciiCount = 0x7E - 0x20 + 1
 $cyrCount = 0x044F - 0x0410 + 1
-$total = $asciiCount + $cyrCount + 2
+$total = $asciiCount + $cyrCount + 6
 
 $sf = [System.Drawing.StringFormat]::GenericTypographic
 $sf.FormatFlags = $sf.FormatFlags -bor [System.Drawing.StringFormatFlags]::NoClip
@@ -103,11 +107,15 @@ $sb = New-Object System.Text.StringBuilder
 [void]$sb.AppendLine("    match u {")
 [void]$sb.AppendLine("        0x0401 => ASCII_COUNT + 64, // Ё")
 [void]$sb.AppendLine("        0x0451 => ASCII_COUNT + 65, // ё")
+[void]$sb.AppendLine("        0x2013 => ASCII_COUNT + 66, // –")
+[void]$sb.AppendLine("        0x2014 => ASCII_COUNT + 67, // —")
+[void]$sb.AppendLine("        0x00AB => ASCII_COUNT + 68, // «")
+[void]$sb.AppendLine("        0x00BB => ASCII_COUNT + 69, // »")
 [void]$sb.AppendLine("        _ => ('?' as u32 - ASCII_FIRST) as usize,")
 [void]$sb.AppendLine("    }")
 [void]$sb.AppendLine("}")
 [void]$sb.AppendLine()
-[void]$sb.AppendLine("/// $total глифов: 95 ASCII + 64 кириллических + Ё/ё.")
+[void]$sb.AppendLine("/// $total глифов: 95 ASCII + 64 кириллических + Ё/ё + типографика.")
 [void]$sb.AppendLine("pub static GLYPHS: [[u16; GLYPH_H]; $total] = [")
 $idx = 0
 foreach ($cp in $cps) {
