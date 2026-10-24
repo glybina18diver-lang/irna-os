@@ -68,33 +68,39 @@ build/irna.iso — 4.9M, bootable via grub-mkrescue (BIOS/i386 PC)
 
 ---
 
-## 2026-10-23/24 — Этап M1: базовое ядро (в работе, один дефект открыт)
+## 2026-10-23/24 — Этап M1: базовое ядро (MBI-дефект закрыт)
 
 ### Что сделано и работает
 ISO пересобран, ядро загружается в QEMU через GRUB Multiboot2 и проходит
-конвейер инициализации M1:
+конвейер инициализации M1. Актуальный serial-вывод после исправления MBI:
 
 ```text
-Booting `IrNa OS (M1)'
-==================================================
 ИрНа kernel: M1 boot start
-PMM frames total = 32768        ← физический аллокатор (fallback 128 МиБ)
-PMM frames free  = 32235
-PMM alloc_frame OK              ← alloc/free кадра работают
-GDT+TSS loaded (RSP0, IST1)     ← GDT + TSS через gdt_reload (NASM)
-kernel heap alloc OK (100 bytes)← bump-пул 1 МиБ, global_allocator
-VGA text console OK             ← VGA 0xB8000; кириллица пока не работает (CP437)
+MBI magic saved  = 920085129      ← 0x36D76289 (EAX)
+MBI ptr copy     = 1048624        ← 0x100030 (безопасный буфер)
+MBI ptr ebx orig = 2225208        ← 0x21F438 (GRUB)
+MBI total size   = 1064
+MBI found        = 1
+MBI tags mask    = 2115447
+MBI free_mem_top = 268304384      ← 0x0FFE0000
+MBI total_free   = 267910144
+PMM frames total = 32768          ← реальная карта (cap 128 МиБ)
+PMM frames free  = 32227
+PMM alloc_frame OK
+GDT+TSS loaded (RSP0, IST1)
+kernel heap alloc OK (100 bytes)
+VGA text console OK             ← кириллица пока не работает (CP437)
 ИрНа kernel: M1 subsystems OK (bootinfo/PMM/GDT/heap/VGA)
 ```
 
 Проверки: `./ci/run-qemu.sh check` → SUCCESS (rc=0);
-`grub-file --is-x86-multiboot2 build/irna-kernel.elf` → rc=0;
-`build/irna.iso` ≈ 4.9M.
+`grub-file --is-x86-multiboot2 build/irna-kernel.elf` → rc=0.
 
 ### Созданные/изменённые файлы
-- `kernel/src/arch.asm` — trampoline: сохранение EBX (MBI), карта памяти
-  0–1 ГиБ (huge pages, MMIO read-only), экспорт `gdt_reload`, стеки для
-  TSS.RSP0/IST1, information-request тег (`header_length=36`).
+- `kernel/src/arch.asm` — trampoline: сохранение EAX/EBX, копия MBI в
+  `.mbi_copy` до включения paging, карта памяти 0–1 ГиБ (huge pages,
+  MMIO read-only), экспорт `gdt_reload`, стеки для TSS.RSP0/IST1,
+  information-request тег (type=1, padding, `header_length=40`).
 - `kernel/src/bootinfo.rs` — парсер MBI (memory map tag=6).
 - `kernel/src/pmm.rs` — bitmap-аллокатор кадров.
 - `kernel/src/gdt.rs` — GDT+TSS (user-селекторы заложены под M2 syscall).
@@ -105,31 +111,27 @@ VGA text console OK             ← VGA 0xB8000; кириллица пока н�
 - `ci/build.sh` — `-Zbuild-std=core,alloc,panic_abort`, menuentry «IrNa OS (M1)».
 - `ci/run-qemu.sh` — проверка строки «M1 subsystems OK».
 
-### Открытый дефект: MBI memory map
-`MBI ptr saved = 2191352`, дубль EBX совпадает, но по этому адресу читается
-`magic = 1000` вместо `0x36D76289`. Ядро стабильно, PMM использует
-детерминированный fallback 128 МиБ, поэтому smoke-тесты проходят.
+### Закрытый дефект: MBI memory map (2026-10-24)
+Корень оказался не в GRUB, а в трёх местах:
+1. `bootinfo.rs` брал `&raw const mb_mboot_ptr` — адрес самой переменной,
+   а не её значение (адрес MBI).
+2. Magic Multiboot2 передаётся в EAX и в структуре MBI отсутствует: по
+   смещению 0 лежит `total_size` (наблюдаемые 1000 — это размер MBI).
+3. GRUB размещает MBI в области, пересекающейся с `.bss` ядра (в старой
+   раскладке — внутри стека). При росте стека MBI мог быть затёрт.
 
-Проверенные гипотезы:
-- EBX потерян trampoline'ом — **исключено** (дубль `mb_mboot_ebx` совпадает).
-- Отсутствие information-request тега — тег type=0 добавлен, заголовок принят
-  GRUB (`grub-file` OK), но magic по-прежнему 1000.
-- Последний дамп 8 слов по EBX был запущен, но не успел вывести результат —
-  это первая точка продолжения.
+Исправление:
+- `arch.asm` сохраняет EAX (`mb_mboot_magic`) и EBX (`mb_mboot_ebx`).
+- MBI копируется в `.mbi_copy` (8 КиБ) в начале образа **до** включения
+  paging и до использования стека; `mb_mboot_ptr` указывает на копию.
+- `bootinfo.rs` читает значение `mb_mboot_ptr`, проверяет magic из EAX,
+  берёт `total_size` из offset 0 и разбирает теги с offset 8.
+- information-request тег исправлен: type=1 (type=0 — end tag), добавлен
+  padding до 8 байт, `header_length=40`.
 
-Правдоподобный остаточный корень: адрес MBI лежит выше 1 МиБ и попадает в
-зону, которую нужно читать до включения paging, либо EBX указывает не на
-начало структуры (значение 1000 похоже на смещение внутри таблицы).
-
-План:
-1. Прогнать `./ci/build.sh --fast` + dbg-ISO и прочитать дамп слов MBI
-   (`MBI word = ...`), определить, что реально лежит по EBX.
-2. По результату: сдвинуть разбор или скопировать MBI в статический буфер
-   в 32-битном trampoline до включения paging.
-3. Включить реальный memory map в PMM и убрать fallback.
-
-Дефект не блокирует M1, но должен быть закрыт до M2, где загрузочные модули
-и точная карта памяти обязательны.
+Результат: `MBI found = 1`, `free_mem_top = 0x0FFE0000`,
+`total_free = 267910144`; PMM использует реальную карту.
+Fallback 128 МиБ оставлен как защитная ветка.
 
 ### Открытый дефект: кириллица в VGA
 В VGA text mode кириллица отображается «крякозябрами». Причина: ROM-шрифт VGA
@@ -139,8 +141,8 @@ VGA text console OK             ← VGA 0xB8000; кириллица пока н�
 временная ASCII-заглушка в VGA.
 
 ### Дальше
-Закрыть MBI-дефект и кириллицу в VGA, затем IDT + PIC remap, PIT-таймер,
-PS/2 клавиатура, framebuffer/syscall.
+Кириллица в VGA отложена до framebuffer (решение заказчика). Далее:
+IDT + PIC remap, PIT-таймер, PS/2 клавиатура, framebuffer/syscall.
 
 ---
 
@@ -177,15 +179,20 @@ PS/2 клавиатура, framebuffer/syscall.
 - `2d9b88e` — M0+M1: восстановленная полная кодовая база.
 - `2155f34` — CI + документация для агентов.
 - `21ace7e` — состояние M1 и детали дефекта MBI.
+- `a865561` — CI pipeline проверен, артефакт ISO протестирован в QEMU.
+- `061f57e` — зафиксирован дефект кириллицы в VGA text mode.
+- `694c14d` — исправлен разбор Multiboot2 MBI (magic из EAX, копия до paging).
+- `fc5fa6a` — выравнивание information-request тега (header_length=40).
 
 ### CI и тест
-- GitHub Actions workflow отработал успешно (run `40062432124`).
-- Артефакт `irna-iso` скачан: `C:\Projects\OS\artifacts\irna.iso` ≈ 11.9 МБ.
-- ISO проверен в QEMU на ноутбуке: `M1 subsystems OK`, дефект MBI сохраняется.
+- GitHub Actions workflow отработал успешно (run `40068792982`).
+- Артефакт `irna-iso` скачан: `C:\Projects\OS\artifacts\fix2\irna.iso` ≈ 11.9 МБ.
+- ISO проверен в QEMU на ноутбуке: `M1 subsystems OK`, `MBI found = 1`,
+  реальная карта памяти (`free_mem_top = 0x0FFE0000`).
 - Рабочий цикл: push → Actions → artifact → QEMU.
 
 ### Дальше
-M1: закрыть MBI-дефект, затем IDT/PIC, PIT, PS/2, framebuffer, syscall, планировщик.
+M1: IDT/PIC, PIT, PS/2, framebuffer, syscall, планировщик.
 
 ---
 

@@ -28,12 +28,15 @@ case "$MODE" in
         -no-reboot \
         -device isa-debug-exit,iobase=0xf4,iosize=0x04 \
       >/dev/null 2>&1 || true
-    if grep -aq "M1 subsystems OK" "$ROOT/build/qemu-serial.log"; then
-      echo "==> SUCCESS: ядро «ИрНа» загрузилось и вывело приветствие в serial."
-    else
+    if ! grep -aq "M1 subsystems OK" "$ROOT/build/qemu-serial.log"; then
       echo "==> FAIL: ожидаемая строка не найдена в $ROOT/build/qemu-serial.log"
       exit 1
     fi
+    if ! grep -aq "MBI found.*= 1" "$ROOT/build/qemu-serial.log"; then
+      echo "==> FAIL: MBI memory map не разобрана (MBI found != 1)"
+      exit 1
+    fi
+    echo "==> SUCCESS: ядро «ИрНа» загрузилось, MBI memory map разобрана."
     ;;
   interactive)
     echo "==> QEMU (BIOS, окно VGA + serial в терминале). Ctrl-A x — выход."
