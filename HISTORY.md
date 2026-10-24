@@ -68,6 +68,74 @@ build/irna.iso — 4.9M, bootable via grub-mkrescue (BIOS/i386 PC)
 
 ---
 
+## 2026-10-23/24 — Этап M1: базовое ядро (в работе, один дефект открыт)
+
+### Что сделано и работает
+ISO пересобран, ядро загружается в QEMU через GRUB Multiboot2 и проходит
+конвейер инициализации M1:
+
+```text
+Booting `IrNa OS (M1)'
+==================================================
+ИрНа kernel: M1 boot start
+PMM frames total = 32768        ← физический аллокатор (fallback 128 МиБ)
+PMM frames free  = 32235
+PMM alloc_frame OK              ← alloc/free кадра работают
+GDT+TSS loaded (RSP0, IST1)     ← GDT + TSS через gdt_reload (NASM)
+kernel heap alloc OK (100 bytes)← bump-пул 1 МиБ, global_allocator
+VGA text console OK             ← VGA 0xB8000, кириллица (CP437)
+ИрНа kernel: M1 subsystems OK (bootinfo/PMM/GDT/heap/VGA)
+```
+
+Проверки: `./ci/run-qemu.sh check` → SUCCESS (rc=0);
+`grub-file --is-x86-multiboot2 build/irna-kernel.elf` → rc=0;
+`build/irna.iso` ≈ 4.9M.
+
+### Созданные/изменённые файлы
+- `kernel/src/arch.asm` — trampoline: сохранение EBX (MBI), карта памяти
+  0–1 ГиБ (huge pages, MMIO read-only), экспорт `gdt_reload`, стеки для
+  TSS.RSP0/IST1, information-request тег (`header_length=36`).
+- `kernel/src/bootinfo.rs` — парсер MBI (memory map tag=6).
+- `kernel/src/pmm.rs` — bitmap-аллокатор кадров.
+- `kernel/src/gdt.rs` — GDT+TSS (user-селекторы заложены под M2 syscall).
+- `kernel/src/heap.rs` — kmalloc-куча как `#[global_allocator]`.
+- `kernel/src/vga.rs` — текстовая консоль 80×25, UTF-8 → CP437.
+- `kernel/src/main.rs` — конвейер инициализации M1 + smoke-тесты.
+- `kernel/linker.ld` — метка `_end` для PMM.
+- `ci/build.sh` — `-Zbuild-std=core,alloc,panic_abort`, menuentry «IrNa OS (M1)».
+- `ci/run-qemu.sh` — проверка строки «M1 subsystems OK».
+
+### Открытый дефект: MBI memory map
+`MBI ptr saved = 2191352`, дубль EBX совпадает, но по этому адресу читается
+`magic = 1000` вместо `0x36D76289`. Ядро стабильно, PMM использует
+детерминированный fallback 128 МиБ, поэтому smoke-тесты проходят.
+
+Проверенные гипотезы:
+- EBX потерян trampoline'ом — **исключено** (дубль `mb_mboot_ebx` совпадает).
+- Отсутствие information-request тега — тег type=0 добавлен, заголовок принят
+  GRUB (`grub-file` OK), но magic по-прежнему 1000.
+- Последний дамп 8 слов по EBX был запущен, но не успел вывести результат —
+  это первая точка продолжения.
+
+Правдоподобный остаточный корень: адрес MBI лежит выше 1 МиБ и попадает в
+зону, которую нужно читать до включения paging, либо EBX указывает не на
+начало структуры (значение 1000 похоже на смещение внутри таблицы).
+
+План:
+1. Прогнать `./ci/build.sh --fast` + dbg-ISO и прочитать дамп слов MBI
+   (`MBI word = ...`), определить, что реально лежит по EBX.
+2. По результату: сдвинуть разбор или скопировать MBI в статический буфер
+   в 32-битном trampoline до включения paging.
+3. Включить реальный memory map в PMM и убрать fallback.
+
+Дефект не блокирует M1, но должен быть закрыт до M2, где загрузочные модули
+и точная карта памяти обязательны.
+
+### Дальше
+IDT + PIC remap, PIT-таймер, PS/2 клавиатура, затем framebuffer/syscall.
+
+---
+
 ## Настройки репозитория (24.10.2026)
 - Автор коммитов и владелец репозитория: **glybina18diver-lang** `<glybina18diver-lang@users.noreply.github.com>`.
 - Все исторические коммиты переписаны (`git filter-branch`), глобальный `git config` обновлён — все будущие коммиты автоматически пишутся от этого автора.
