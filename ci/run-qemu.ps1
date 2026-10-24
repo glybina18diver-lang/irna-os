@@ -164,7 +164,9 @@ $checks = @(
     @{ Name = "smoke-тест int3";     Pattern = "IDT int3 smoke OK" },
     @{ Name = "PIC/PIT: IRQ0";       Pattern = "PIT: 20 ticks OK" },
     @{ Name = "PS/2 клавиатура";     Pattern = "PS/2 keyboard ready" },
-    @{ Name = "framebuffer (LFB)";   Pattern = "framebuffer console OK" }
+    @{ Name = "framebuffer (LFB)";   Pattern = "framebuffer console OK" },
+    @{ Name = "SYSCALL/SYSRET";      Pattern = "SYSCALL/SYSRET enabled" },
+    @{ Name = "ring 3 round-trip";   Pattern = "syscall/sysret round-trip OK" }
 )
 
 if ($Key -ne "") {

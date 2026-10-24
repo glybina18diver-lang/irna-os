@@ -48,7 +48,11 @@ case "$MODE" in
       echo "==> FAIL: LFB не инициализирован (нет 'framebuffer console OK')"
       exit 1
     fi
-    echo "==> SUCCESS: ядро «ИрНа» загрузилось, MBI memory map разобрана, LFB работает."
+    if ! grep -aq "syscall/sysret round-trip OK" "$ROOT/build/qemu-serial.log"; then
+      echo "==> FAIL: syscall/sysret не работает (нет 'syscall/sysret round-trip OK')"
+      exit 1
+    fi
+    echo "==> SUCCESS: ядро «ИрНа» загрузилось, MBI memory map разобрана, LFB и syscall работают."
     ;;
   interactive)
     echo "==> QEMU (BIOS, окно VGA + serial в терминале). Ctrl-A x — выход."
