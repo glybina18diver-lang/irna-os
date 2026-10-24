@@ -13,8 +13,9 @@ Remote: `https://github.com/glybina18diver-lang/irna-os.git` (ветка `main`)
 
 ## Текущий этап
 
-**M1 в работе.** Сделано: Multiboot2 bootinfo, PMM, GDT+TSS, heap, VGA text.
-Дальше: IDT/PIC, PIT, PS/2, framebuffer, syscall, планировщик.
+**M1 в работе.** Сделано: Multiboot2 bootinfo, PMM, GDT+TSS, heap, IDT/PIC,
+PIT 100 Гц, PS/2 клавиатура, LFB-консоль с кириллицей (PT Mono 10×16).
+Дальше: `syscall`/`sysret` + libc-mini, планировщик, раскладка EN/RU.
 Актуальное состояние — `docs/STATE.md`.
 
 ## Перед началом работы прочитать

@@ -13,7 +13,7 @@
 - [x] Физический аллокатор (frame allocator)
 - [x] Виртуальная память (paging), heap + kmalloc  (identity map + bump-heap)
 - [~] Таймер (PIT 100 Гц) + cooperative планировщик  (PIT готов; планировщик — нет)
-- [~] Framebuffer-вывод (VGA text -> LFB)  (VGA text готов; LFB — нет)
+- [x] Framebuffer-вывод (VGA text -> LFB)  (LFB 24/32 bpp, шрифт PT Mono 10×16, кириллица)
 - [x] PS/2 клавиатура (IRQ1, scancode set 1; раскладка EN/RU — после LFB)
 - [ ] syscall/sysret + libc-mini (write/read/exit)
 - [ ] Вытесняющий многозадачный планировщик
@@ -59,3 +59,4 @@
 - 2026-10-24: MBI-дефект закрыт (magic из EAX, копия MBI до paging); PMM использует реальную карту памяти.
 - 2026-10-24: M1 — IDT (48 гейтов) + PIC remap 0x20..0x2F + PIT 100 Гц проверены в QEMU.
 - 2026-10-24: M1 — PS/2 клавиатура (IRQ1, scancode set 1) проверена в QEMU (`key: 'a'`).
+- 2026-10-24: M1 — LFB-консоль (24/32 bpp) + шрифт PT Mono 10×16 с кириллицей; скриншот QMP подтверждает вывод.

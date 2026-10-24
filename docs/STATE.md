@@ -5,7 +5,7 @@
 **Дата:** 2026-10-24
 **Этап:** M1 (в работе)
 **Ветка:** `main`
-**Последний коммит:** `250b956` — PS/2 клавиатура (IRQ1) + QMP-стенд
+**Последний коммит:** `4e7bb00` — стенд: клавиша и скриншот по событию
 
 ## Что сделано
 
@@ -33,11 +33,18 @@
   расширения, стрелки/Home/End/Delete/PgUp/PgDn), `poll()` без блокировок.
   Раскладка пока US.
 - `kernel/src/heap.rs` — bump-аллокатор на 1 МиБ, `#[global_allocator]`.
-- `kernel/src/vga.rs` — текстовая консоль 80×25, UTF-8 → CP437.
-  Кириллица в ROM-шрифте VGA отсутствует — нужен свой 8×16 шрифт.
+- `kernel/src/vga.rs` — текстовая консоль 80×25, UTF-8 → CP437 (fallback,
+  если LFB недоступен). Кириллица в ROM-шрифте VGA отсутствует.
+- `kernel/src/fb.rs` — консоль в линейном framebuffer: глифы 10×16, масштаб
+  2× при высоте ≥ 700 px, перенос/прокрутка, 24 и 32 bpp.
+- `kernel/src/font.rs` — 165 глифов 10×16 (PT Mono, OFL): ASCII, кириллица
+  А-я + Ё/ё, `– — « »`. Генерируется `tools/gen-font8x16.ps1`.
+- `kernel/src/console.rs` — диспетчер вывода: LFB, иначе VGA text.
+- `kernel/src/paging.rs` — `map_identity_2m` для LFB (пул из 8 page tables).
 - `kernel/src/arch.asm` — trampoline, identity map 0..1 ГиБ (huge pages,
   MMIO read-only), `gdt_reload`, стеки TSS.RSP0/IST1, information-request тег
-  (type=1, padding до 8 байт), копия MBI в `.mbi_copy` до включения paging.
+  (type=1), request-тег framebuffer (type=5, 1024×768×32), копия MBI
+  в `.mbi_copy` до включения paging. `header_length = 64`.
 - `kernel/src/main.rs` — конвейер инициализации M1 + smoke-тесты.
 - `kernel/linker.ld` — метка `_end` для PMM, секция `.mbi_copy`.
 
@@ -67,11 +74,17 @@ PIT programmed (100 Hz)
 interrupts enabled (IF=1)
 PIT: 20 ticks OK
 PS/2 keyboard ready (IRQ1)
+LFB addr         = 4244635648      ← 0xFD000000 (QEMU)
+LFB pitch        = 2400
+LFB width        = 800
+LFB height       = 600
+LFB bpp          = 24
+framebuffer console OK (800x600, 80x37 chars)
 kernel heap alloc OK (100 bytes)
-VGA text console OK
-ИрНа kernel: M1 subsystems OK (bootinfo/PMM/GDT/IDT/PIC/PIT/heap/VGA)
+framebuffer console OK
+ИрНа kernel: M1 subsystems OK (bootinfo/PMM/GDT/IDT/PIC/PIT/heap/LFB)
 ==================================================
-keyboard echo: нажмите клавиши (serial + VGA)
+keyboard echo: нажмите клавиши (serial + framebuffer)
 key: 'a'
 ```
 
@@ -132,6 +145,25 @@ key: 'a'
 - Локальный стенд `ci/run-qemu.ps1`: `-display none`, скрытое окно, serial через
   TCP, клавиша — через QMP `input-send-event` (HMP `sendkey` headless не работает).
 
+### Framebuffer (LFB) и кириллица (2026-10-24)
+- `arch.asm`: request-тег framebuffer type=5 (`1024×768×32`), `header_length=64`;
+  экспорт `pml4`/`pdpt`.
+- `bootinfo.rs`: разбор тега 8 — только RGB (`fb_type=1`) и 24/32 bpp; позиции
+  и размеры каналов сохраняются, порядок не предполагается.
+- `paging.rs`: `map_identity_2m(phys, len)` — 2-МиБ страницы RW, пул из 8
+  page tables в `.bss`, перезагрузка CR3. Нужен потому, что LFB у QEMU лежит
+  на `0xFD000000` — выше 1 ГиБ, покрытого trampoline-картой.
+- `font.rs`: 165 глифов 10×16 из PT Mono (OFL): ASCII, кириллица А-я, Ё/ё,
+  `– — « »`; генератор `tools/gen-font8x16.ps1`, превью —
+  `tools/preview-font8x16.ps1`.
+- `fb.rs`: консоль в LFB — фон/текст, масштаб 2× при высоте ≥ 700, `\t`,
+  backspace, прокрутка сдвигом; 24 и 32 bpp.
+- `console.rs`: LFB, если доступен, иначе VGA text.
+- Проверено (run `40083627944`): `framebuffer console OK (800x600, 80x37 chars)`,
+  скриншот QMP подтверждает кириллицу и типографику.
+- GRUB сам выбирает режим по полям тега (в этом окружении — 800×600×24);
+  ядро к конкретному режиму не привязано.
+
 ### Восстановление репозитория (2026-10-24)
 - Сравнены `workspace_last` (M1) и `irna-os-main` (M0).
 - Подтверждено: M0-снимок полностью входит в M1-рабочую область.
@@ -148,21 +180,22 @@ key: 'a'
 
 ## Следующие шаги (M1)
 
-1. Framebuffer / LFB (после VGA text) — разблокирует кириллицу в консоли.
-2. `syscall`/`sysret` + минимальный libc.
-3. Кооперативный, затем вытесняющий планировщик.
-4. Раскладка EN/RU и кириллица (после framebuffer).
+1. `syscall`/`sysret` + минимальный libc (`write`/`read`/`exit`).
+2. Кооперативный, затем вытесняющий планировщик.
+3. Раскладка EN/RU (шрифт с кириллицей уже в ядре).
+4. Мелочи LFB: курсор, цветовые атрибуты, масштаб по ширине экрана.
 
 ## Известные проблемы и ограничения
 
-- GRUB 2.06 (Debian/Ubuntu) не принимает request-теги framebuffer (0x14),
-  поэтому framebuffer-тег не добавляем; information request (type=1) работает.
+- В этом окружении GRUB отдаёт 800×600×24 вместо запрошенных 1024×768×32
+  (VBE-режим недоступен). Ядро читает bpp/pitch/каналы из тега 8 и работает
+  с любым из них; на реальном железе режим может отличаться.
 - PMM сохраняет детерминированный fallback 128 МиБ на случай, если MBI не
   разобран; в QEMU теперь используется реальная карта памяти.
-- **VGA text: кириллица — «крякозябры».** ROM-шрифт VGA (CP437) не содержит
-  кириллицу; текущая таблица в `vga.rs` отображает её в символы псевдографики.
-  Serial-вывод при этом корректный (UTF-8). Нужен свой 8×16 шрифт с кириллицей
-  или временная ASCII-заглушка в VGA.
+- VGA text остаётся только fallback: кириллицы в ROM-шрифте (CP437) нет.
+  Основной путь — LFB, там кириллица работает.
+- Пул page tables в `paging.rs` — 8 таблиц (32 КиБ), без освобождения.
+  Для M1 достаточно; полноценный VM-менеджер — в M2.
 - Полная сборка ISO требует Linux-тулчейн (GRUB, xorriso) → делается в CI.
 - На ноутбуке нет Rust/NASM; локально только QEMU для тестов.
 - Ноутбук: 4 ГБ RAM, Celeron N2840 → WSL2/VM не использовать.
