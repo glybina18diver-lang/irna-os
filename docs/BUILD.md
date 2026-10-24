@@ -33,18 +33,33 @@ $gh = "C:\Projects\OS\tools\gh\bin\gh.exe"
 
 ## 3. Тест в QEMU (Windows)
 
-QEMU установлен портативно:
+QEMU может лежать в одном из двух мест (скрипт проверяет их по порядку):
 
+```text
+C:\Program Files\qemu\qemu-system-x86_64.exe      # основной путь
+C:\Projects\OS\tools\qemu\qemu-system-x86_64.exe  # портативный fallback
 ```
-C:\Projects\OS\tools\qemu\qemu-system-x86_64.exe
+
+### Рекомендуемый способ — `ci/run-qemu.ps1`
+
+```powershell
+cd C:\Projects\OS\irna-os
+powershell -NoProfile -ExecutionPolicy Bypass -File ci\run-qemu.ps1 `
+  -Iso C:\Projects\OS\artifacts\irna.iso
 ```
+
+Скрипт запускает QEMU без окна (`-display none`, `-m 512`, `-no-reboot`),
+serial идёт через TCP, клавиша `a` отправляется через QMP после появления
+`keyboard echo:`, проверяются все маркеры M1. Код возврата `0` — успех.
+Флаги и логи описаны в `docs/QUICKSTART.md` §5.
 
 ### С окном VGA
 
 ```powershell
-& "C:\Projects\OS\tools\qemu\qemu-system-x86_64.exe" `
+$qemu = "C:\Program Files\qemu\qemu-system-x86_64.exe"
+& $qemu `
   -cdrom "C:\Projects\OS\artifacts\irna.iso" `
-  -m 256M `
+  -m 512 `
   -serial stdio
 ```
 
@@ -53,9 +68,10 @@ C:\Projects\OS\tools\qemu\qemu-system-x86_64.exe
 ### Без окна, serial в файл
 
 ```powershell
-& "C:\Projects\OS\tools\qemu\qemu-system-x86_64.exe" `
+$qemu = "C:\Program Files\qemu\qemu-system-x86_64.exe"
+& $qemu `
   -cdrom "C:\Projects\OS\artifacts\irna.iso" `
-  -m 256M `
+  -m 512 `
   -display none `
   -serial file:"C:\Projects\OS\artifacts\serial.log" `
   -no-reboot
@@ -67,9 +83,13 @@ C:\Projects\OS\tools\qemu\qemu-system-x86_64.exe
 Select-String -Path "C:\Projects\OS\artifacts\serial.log" -Pattern "M1 subsystems OK"
 ```
 
+Примечание: `-serial file:` буферизует вывод; для интерактивной проверки
+клавиатуры используйте `ci/run-qemu.ps1` (TCP + QMP).
+
 ### Если QEMU тормозит
 
-- Оставить `-m 256M` (не больше 512M).
+- Оставить `-m 512`; при нехватке RAM — `-m 256` (PMM всё равно ограничен
+  128 МиБ, см. `docs/TECH-DEBT.md` TD-001).
 - Закрыть браузер и лишние приложения.
 - Использовать `-display none` + serial-лог.
 - При необходимости: `-accel tcg,thread=multi`.
@@ -101,7 +121,8 @@ ISO на Windows не собирается — для этого нужен Linu
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y nasm grub-pc-bin grub-common xorriso mtools
+sudo apt-get install -y --no-install-recommends \
+  nasm grub-pc-bin grub-common xorriso mtools qemu-system-x86
 rustup toolchain install nightly
 rustup component add rust-src --toolchain nightly
 ./ci/build.sh
@@ -110,10 +131,17 @@ rustup component add rust-src --toolchain nightly
 
 ## 6. Частые проблемы
 
+Полная таблица (включая `gh`, артефакты и PowerShell) — в
+`docs/QUICKSTART.md` §9. Известные ограничения с планами — в
+`docs/TECH-DEBT.md`.
+
 | Симптом | Причина / решение |
 |---|---|
 | `не найден nasm` | Установить NASM и добавить в `PATH`. |
 | `-Zbuild-std` не работает | Нужен nightly + `rust-src`; stable — только с `RUSTC_BOOTSTRAP=1`. |
 | `grub-mkrescue` падает | Нужны `grub-pc-bin`, `xorriso`, `mtools`; в CI они ставятся. |
+| QEMU не найден | Проверить `C:\Program Files\qemu\...` и `C:\Projects\OS\tools\qemu\...`; скрипт ищет оба. |
 | QEMU не видит ISO | Проверить путь к `irna.iso`; запускать из-под пользователя. |
 | Нет строки `M1 subsystems OK` | Смотреть `serial.log`; возможно, ядро упало до инициализации serial. |
+| Клавиша не проверяется | В headless HMP `sendkey` не доходит до PS/2; нужен QMP (используется в `ci/run-qemu.ps1`). |
+| Нет кириллицы | Ядро в VGA text fallback: в CP437 нет русских букв; основной путь — LFB. |

@@ -14,6 +14,8 @@ Remote: https://github.com/glybina18diver-lang/irna-os.git (main)
 - HISTORY.md
 - ROADMAP.md
 - DECISIONS.md
+- docs/TECH-DEBT.md
+- docs/QUICKSTART.md
 
 Текущий этап: M1.
 Задача: <что нужно сделать>.
@@ -21,18 +23,24 @@ Remote: https://github.com/glybina18diver-lang/irna-os.git (main)
 
 В конце:
 1. Обнови HISTORY.md и docs/STATE.md.
-2. Сделай коммит с префиксом компонента (kernel:/docs:/ci:).
-3. Выполни push.
+2. Дополни docs/TECH-DEBT.md (новые/закрытые TD-NNN) и docs/QUICKSTART.md,
+   если менялись команды, пути или флаги.
+3. Сделай коммит с префиксом компонента (kernel:/docs:/ci:).
+4. Выполни push.
 ```
 
 ## Чек-лист агента
 
 - [ ] `git status` — понять, есть ли незакоммиченные изменения.
-- [ ] Прочитать `docs/STATE.md`, `HISTORY.md`, `ROADMAP.md`.
+- [ ] Прочитать `docs/STATE.md`, `HISTORY.md`, `ROADMAP.md`,
+      `docs/TECH-DEBT.md`.
 - [ ] Уточнить задачу, если есть неоднозначность.
 - [ ] Выполнить работу.
 - [ ] Обновить `HISTORY.md` и `docs/STATE.md`.
 - [ ] При архитектурном решении — добавить запись в `DECISIONS.md`.
+- [ ] При новом/закрытом ограничении — обновить `docs/TECH-DEBT.md`.
+- [ ] При изменении команд, путей или флагов — обновить
+      `docs/QUICKSTART.md` и `docs/BUILD.md`.
 - [ ] Коммит + push.
 - [ ] Кратко отчитаться: что сделано, что проверено, что дальше.
 

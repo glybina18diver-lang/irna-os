@@ -13,10 +13,16 @@
 | [SPEC.md](SPEC.md) | Полная спецификация системы |
 | [ROADMAP.md](ROADMAP.md) | Этапы M0–M6+ и текущий статус |
 | [DECISIONS.md](DECISIONS.md) | Журнал архитектурных решений |
+| [docs/STATE.md](docs/STATE.md) | Текущее состояние: что сделано и что дальше |
+| [docs/QUICKSTART.md](docs/QUICKSTART.md) | Быстрый старт на новой машине: сборка, ISO, QEMU |
+| [docs/TECH-DEBT.md](docs/TECH-DEBT.md) | Реестр технического долга (TD-NNN) |
+| [docs/BUILD.md](docs/BUILD.md) | Сборка и тестирование |
 | [branding.md](branding.md) | Реестр мест использования имени ОС (лёгкое переименование) |
 
 ## Статус
-M0 закрыт. Проект на этапе **M1** (базовое ядро): bootinfo, PMM, GDT+TSS, heap, VGA text.
+M0 закрыт. Проект на этапе **M1** (базовое ядро): bootinfo, PMM, GDT+TSS, heap,
+IDT/PIC/PIT, PS/2, LFB-консоль с кириллицей, SYSCALL/SYSRET + ring 3,
+кооперативный планировщик.
 См. [ROADMAP.md](ROADMAP.md) и [docs/STATE.md](docs/STATE.md).
 
 ## Правила разработки
