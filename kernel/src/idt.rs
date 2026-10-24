@@ -1,6 +1,7 @@
-// kernel/src/idt.rs — IDT и обработчики исключений (M1).
-// 32 gate-дескриптора (векторы 0..31) указывают на isr_stub_* в arch.asm.
-// Общий stub сохраняет регистры и вызывает exception_handler с указателем на
+// kernel/src/idt.rs — IDT, исключения CPU и аппаратные прерывания (M1).
+// 48 gate-дескрипторов: векторы 0..31 (исключения) и 32..47 (IRQ0..15 после
+// перепрошивки PIC) указывают на isr_stub_* в arch.asm.
+// Общий stub сохраняет регистры и вызывает interrupt_handler с указателем на
 // InterruptFrame. #BP (int3) используется как smoke-тест: обработчик печатает
 // вектор и возвращается через iretq; остальные исключения останавливают ядро.
 
@@ -36,7 +37,7 @@ impl IdtEntry {
 static mut IDT: [IdtEntry; 256] = [IdtEntry::ZERO; 256];
 
 extern "C" {
-    static isr_stub_table: [u64; 32];
+    static isr_stub_table: [u64; 48];
 }
 
 const SEL_CODE: u16 = 0x08;
@@ -84,7 +85,8 @@ fn set_gate(vector: usize, handler: u64, ist: u8, attr: u8) {
 /// Загрузить IDT. Вызывать после gdt::init() (селектор 0x08 должен быть валиден).
 pub fn init() {
     let table = unsafe { &isr_stub_table };
-    for i in 0..32 {
+    // 0..31 — исключения CPU, 32..47 — IRQ0..15 после перепрошивки PIC.
+    for i in 0..48 {
         // #DF (8) идёт на IST1, остальные — на текущий стек.
         let ist = if i == 8 { 1 } else { 0 };
         set_gate(i, table[i], ist, GATE_INTERRUPT);
@@ -137,8 +139,14 @@ fn vector_name(v: u64) -> &'static str {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn exception_handler(frame: *const InterruptFrame) {
+pub extern "C" fn interrupt_handler(frame: *const InterruptFrame) {
     let f = unsafe { &*frame };
+
+    // Векторы 0x20..0x2F — аппаратные прерывания (после перепрошивки PIC).
+    if f.vector >= 32 {
+        crate::irq::dispatch(f);
+        return;
+    }
 
     serial::write_str("\nEXCEPTION ");
     serial::write_hex_u64(f.vector);

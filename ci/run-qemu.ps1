@@ -84,7 +84,8 @@ $checks = @(
     @{ Name = "загрузка ядра";       Pattern = "M1 subsystems OK" },
     @{ Name = "MBI разобран";        Pattern = "MBI found\s*=\s*1" },
     @{ Name = "IDT загружена";       Pattern = "IDT loaded" },
-    @{ Name = "smoke-тест int3";     Pattern = "IDT int3 smoke OK" }
+    @{ Name = "smoke-тест int3";     Pattern = "IDT int3 smoke OK" },
+    @{ Name = "PIC/PIT: IRQ0";       Pattern = "PIT: 20 ticks OK" }
 )
 
 $fail = 0

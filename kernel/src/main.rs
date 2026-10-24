@@ -11,6 +11,10 @@ mod brand;
 mod gdt;
 mod heap;
 mod idt;
+mod io;
+mod irq;
+mod pic;
+mod pit;
 mod pmm;
 mod serial;
 mod vga;
@@ -68,10 +72,26 @@ pub extern "C" fn kernel_main() -> ! {
 
     // --- 3b. IDT + обработчики исключений ---
     idt::init();
-    serial::write_str("IDT loaded (32 exception gates)\n");
-    // Smoke-тест: int3 -> #BP -> exception_handler -> iretq.
+    serial::write_str("IDT loaded (48 gates: 32 exception + 16 IRQ)\n");
+    // Smoke-тест: int3 -> #BP -> interrupt_handler -> iretq.
     unsafe { core::arch::asm!("int3") };
     serial::write_str("IDT int3 smoke OK\n");
+
+    // --- 3c. PIC + PIT: аппаратные прерывания ---
+    pic::init();
+    serial::write_str("PIC remapped (IRQ 0x20..0x2F)\n");
+    pit::init();
+    serial::write_str("PIT programmed (100 Hz)\n");
+    pic::unmask(0); // IRQ0 — таймер
+    unsafe { core::arch::asm!("sti") };
+    serial::write_str("interrupts enabled (IF=1)\n");
+    // 20 тиков при 100 Гц — примерно 200 мс; заодно проверяем, что IRQ0
+    // действительно приходит и EOI отправляется (иначе второй тик не придёт).
+    pit::wait_ticks(20);
+    serial::write_str("PIT: 20 ticks OK\n");
+    if irq::unexpected() != 0 {
+        serial::write_str("WARN: unexpected/spurious IRQs seen\n");
+    }
 
     // --- 4. куча ядра (bump-пул 1 МиБ) + проверка через global_allocator ---
     {
@@ -100,11 +120,12 @@ pub extern "C" fn kernel_main() -> ! {
         let _ = "".to_string();
     }
     vga::println("heap: 1 MiB bump pool");
+    vga::println("IDT: 48 gates, PIC: 0x20..0x2F, PIT: 100 Hz");
     vga::println("VGA text console OK");
     serial::write_str("VGA text console OK\n");
 
     serial::write_str(KERNEL_NAME);
-    serial::write_str(" kernel: M1 subsystems OK (bootinfo/PMM/GDT/IDT/heap/VGA)\n");
+    serial::write_str(" kernel: M1 subsystems OK (bootinfo/PMM/GDT/IDT/PIC/PIT/heap/VGA)\n");
     serial::write_str("==================================================\n");
     loop {
         unsafe { core::arch::asm!("hlt") };

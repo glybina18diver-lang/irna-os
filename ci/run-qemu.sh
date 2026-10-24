@@ -36,6 +36,10 @@ case "$MODE" in
       echo "==> FAIL: MBI memory map не разобрана (MBI found != 1)"
       exit 1
     fi
+    if ! grep -aq "PIT: 20 ticks OK" "$ROOT/build/qemu-serial.log"; then
+      echo "==> FAIL: IRQ0/PIT не работает (нет 'PIT: 20 ticks OK')"
+      exit 1
+    fi
     echo "==> SUCCESS: ядро «ИрНа» загрузилось, MBI memory map разобрана."
     ;;
   interactive)

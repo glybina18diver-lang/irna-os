@@ -65,7 +65,7 @@ mbi_copy: times MBI_COPY_SIZE db 0
 section .text
 bits 32
 extern kernel_main
-extern exception_handler
+extern interrupt_handler
 global start
 global mb_mboot_ptr           ; для Rust: указатель на структуру Multiboot2 (MBI)
 global mb_mboot_ebx           ; диагностика M1: сырое значение EBX на входе (дубль)
@@ -200,7 +200,7 @@ gdt_reload.after:                  ; NASM: локальные метки чер�
 ;   [rsp]    = vector
 ;   [rsp+8]  = error code (CPU или 0)
 ;   [rsp+16] = RIP, +24 = CS, +32 = RFLAGS, +40 = RSP, +48 = SS
-; Общий stub сохраняет 15 регистров и вызывает exception_handler(frame).
+; Общий stub сохраняет 15 регистров и вызывает interrupt_handler(frame).
 %macro ISR_NOERR 1
 global isr_stub_%1
 isr_stub_%1:
@@ -249,6 +249,24 @@ ISR_ERR   29
 ISR_ERR   30
 ISR_NOERR 31
 
+; IRQ0..15 после перепрошивки PIC (векторы 0x20..0x2F). Своего error code нет.
+ISR_NOERR 32
+ISR_NOERR 33
+ISR_NOERR 34
+ISR_NOERR 35
+ISR_NOERR 36
+ISR_NOERR 37
+ISR_NOERR 38
+ISR_NOERR 39
+ISR_NOERR 40
+ISR_NOERR 41
+ISR_NOERR 42
+ISR_NOERR 43
+ISR_NOERR 44
+ISR_NOERR 45
+ISR_NOERR 46
+ISR_NOERR 47
+
 isr_common:
     push rax
     push rbx
@@ -268,7 +286,7 @@ isr_common:
     mov rdi, rsp                   ; аргумент: указатель на InterruptFrame
     mov rbp, rsp                   ; сохранить указатель на сохранённые регистры
     and rsp, -16                   ; SysV: RSP % 16 == 0 перед call
-    call exception_handler
+    call interrupt_handler
     mov rsp, rbp
     pop r15
     pop r14
@@ -337,7 +355,7 @@ gdt64_ptr:
     dd gdt64                              ; base: младшие 32 бита (адрес < 4 GiB)
     dd 0                                  ; base: старшие 32 бита
 
-; M1: таблица адресов ISR-заглушек (читается idt.rs)
+; M1: таблица адресов ISR-заглушек (читается idt.rs): 0..31 исключения, 32..47 IRQ
 align 8
 global isr_stub_table
 isr_stub_table:
@@ -349,3 +367,7 @@ isr_stub_table:
     dq isr_stub_20, isr_stub_21, isr_stub_22, isr_stub_23
     dq isr_stub_24, isr_stub_25, isr_stub_26, isr_stub_27
     dq isr_stub_28, isr_stub_29, isr_stub_30, isr_stub_31
+    dq isr_stub_32, isr_stub_33, isr_stub_34, isr_stub_35
+    dq isr_stub_36, isr_stub_37, isr_stub_38, isr_stub_39
+    dq isr_stub_40, isr_stub_41, isr_stub_42, isr_stub_43
+    dq isr_stub_44, isr_stub_45, isr_stub_46, isr_stub_47
