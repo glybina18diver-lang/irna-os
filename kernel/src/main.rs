@@ -97,9 +97,6 @@ pub extern "C" fn kernel_main() -> ! {
     // --- 3d. PS/2 клавиатура (IRQ1) ---
     keyboard::init();
     pic::unmask(1);
-    serial::write_str("PIC mask = ");
-    serial::write_hex_u64(pic::read_mask(true) as u64);
-    serial::write_str("\n");
     serial::write_str("PS/2 keyboard ready (IRQ1)\n");
 
     // --- 4. куча ядра (bump-пул 1 МиБ) + проверка через global_allocator ---

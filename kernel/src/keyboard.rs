@@ -125,16 +125,9 @@ pub fn init() {
     if cfg == 0x00 || cfg == 0xFF {
         cfg = 0x45; // контроллер не ответил — берём типичное значение после BIOS
     }
-    crate::serial::write_str("8042 cfg read = ");
-    crate::serial::write_hex_u64(cfg as u64);
-    crate::serial::write_str("\n");
     cfg |= 0x01 | 0x40;
     cfg &= !0x10;
-    // ВРЕМЕННО (диагностика IRQ1): конфигурационный байт не пишем.
-    // write_config(cfg);
-    crate::serial::write_str("8042 cfg want = ");
-    crate::serial::write_hex_u64(cfg as u64);
-    crate::serial::write_str("\n");
+    write_config(cfg);
 
     unsafe {
         wait_write();
@@ -185,23 +178,15 @@ fn wait_write() {
 pub fn handle_irq() {
     unsafe {
         let status = io::inb(STATUS);
-        // ВРЕМЕННО (диагностика): показываем каждый IRQ1 и сырой байт.
-        crate::serial::write_str("irq1 st=");
-        crate::serial::write_hex_u64(status as u64);
         if status & 0x01 == 0 {
-            crate::serial::write_str(" (no data)\n");
             return; // данных нет
         }
         if status & 0x20 != 0 {
             // Байт от мыши — забираем, чтобы не застрял в буфере 8042.
             let _ = io::inb(DATA);
-            crate::serial::write_str(" (mouse)\n");
             return;
         }
         let scancode = io::inb(DATA);
-        crate::serial::write_str(" sc=");
-        crate::serial::write_hex_u64(scancode as u64);
-        crate::serial::write_str("\n");
         RING.push(scancode);
     }
 }

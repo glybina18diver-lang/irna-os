@@ -100,6 +100,7 @@ pub fn eoi_master_only() {
 }
 
 /// Прочитать текущую маску (1 = линия замаскирована).
+#[allow(dead_code)] // используется при отладке прерываний
 pub fn read_mask(master: bool) -> u8 {
     unsafe { inb(if master { PIC1_DATA } else { PIC2_DATA }) }
 }
