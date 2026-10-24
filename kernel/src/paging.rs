@@ -69,8 +69,8 @@ pub fn map_identity_2m(phys: u64, len: u64) -> bool {
         let pd_idx = ((addr >> 21) & 0x1FF) as usize;
 
         unsafe {
-            let pdpt = pdpt_ptr();
-            let mut entry = core::ptr::read_volatile(pdpt.add(pdpt_idx));
+            let pdpt_tbl = pdpt_ptr();
+            let mut entry = core::ptr::read_volatile(pdpt_tbl.add(pdpt_idx));
             let pd: *mut u64;
             if entry & P == 0 {
                 // нет PD для этого ГиБ — выделяем
@@ -78,13 +78,13 @@ pub fn map_identity_2m(phys: u64, len: u64) -> bool {
                     Some(p) => {
                         pd = p;
                         entry = (p as u64) | P | RW;
-                        core::ptr::write_volatile(pdpt.add(pdpt_idx), entry);
+                        core::ptr::write_volatile(pdpt_tbl.add(pdpt_idx), entry);
                     }
                     None => return false,
                 }
             } else if entry & PS != 0 {
                 // уже отображено страницей 1 ГиБ — просто разрешаем запись
-                core::ptr::write_volatile(pdpt.add(pdpt_idx), entry | RW);
+                core::ptr::write_volatile(pdpt_tbl.add(pdpt_idx), entry | RW);
                 addr += PAGE_2M;
                 continue;
             } else {
