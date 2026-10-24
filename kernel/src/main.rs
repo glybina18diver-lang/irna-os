@@ -21,6 +21,7 @@ mod paging;
 mod pic;
 mod pit;
 mod pmm;
+mod sched;
 mod serial;
 mod syscall;
 mod user;
@@ -178,8 +179,18 @@ pub extern "C" fn kernel_main() -> ! {
     serial::write_str("SYSCALL/SYSRET enabled (EFER.SCE, STAR/LSTAR/FMASK)\n");
     console::println("syscall: write/exit, тест ring 3");
 
+    // --- 7. кооперативный планировщик: 3 задачи по 3 тика ---
+    sched::spawn(task_a);
+    sched::spawn(task_b);
+    sched::spawn(task_c);
+    let done = sched::run();
+    serial::write_str("sched: tasks done = ");
+    serial::write_dec_u64(done as u64);
+    serial::write_str("\n");
+    console::println("sched: 3 tasks, cooperative switch OK");
+
     serial::write_str(KERNEL_NAME);
-    serial::write_str(" kernel: M1 subsystems OK (bootinfo/PMM/GDT/IDT/PIC/PIT/heap/LFB/syscall)\n");
+    serial::write_str(" kernel: M1 subsystems OK (bootinfo/PMM/GDT/IDT/PIC/PIT/heap/LFB/syscall/sched)\n");
     serial::write_str("==================================================\n");
 
     // ring 3 -> syscall write -> syscall exit -> kernel_after_user -> echo_loop
@@ -225,6 +236,40 @@ pub fn echo_loop() -> ! {
         }
         unsafe { core::arch::asm!("hlt") };
     }
+}
+
+// --- задачи для smoke-теста кооперативного планировщика ---------------------
+extern "C" fn task_a() {
+    for i in 1..=3u64 {
+        serial::write_str("task A: tick ");
+        serial::write_dec_u64(i);
+        serial::write_str("\n");
+        sched::yield_now();
+    }
+    serial::write_str("task A: done\n");
+    sched::task_exit();
+}
+
+extern "C" fn task_b() {
+    for i in 1..=3u64 {
+        serial::write_str("task B: tick ");
+        serial::write_dec_u64(i);
+        serial::write_str("\n");
+        sched::yield_now();
+    }
+    serial::write_str("task B: done\n");
+    sched::task_exit();
+}
+
+extern "C" fn task_c() {
+    for i in 1..=3u64 {
+        serial::write_str("task C: tick ");
+        serial::write_dec_u64(i);
+        serial::write_str("\n");
+        sched::yield_now();
+    }
+    serial::write_str("task C: done\n");
+    sched::task_exit();
 }
 
 // --- утилиты форматирования чисел для serial (без std) ---

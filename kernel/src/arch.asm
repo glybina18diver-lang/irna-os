@@ -314,6 +314,29 @@ enter_user_mode:
     xor r15d, r15d
     iretq
 
+; --- M1: кооперативное переключение контекста --------------------------------
+; void switch_context(u64 *prev_rsp /*rdi*/, u64 next_rsp /*rsi*/)
+; Сохраняет callee-saved регистры (SysV) на текущем стеке, записывает RSP
+; в *prev_rsp и продолжает на стеке next_rsp. Первый вход в задачу
+; подготовлен sched.rs: на стеке лежат r15..rbp, адрес возврата и паддинг.
+global switch_context
+switch_context:
+    push rbp
+    push rbx
+    push r12
+    push r13
+    push r14
+    push r15
+    mov [rdi], rsp
+    mov rsp, rsi
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    pop rbx
+    pop rbp
+    ret
+
 ; --- M1: обработчики исключений (векторы 0..31) ------------------------------
 ; Каждая заглушка приводит стек к единому виду:
 ;   [rsp]    = vector
