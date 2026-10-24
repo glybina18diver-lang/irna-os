@@ -55,6 +55,11 @@ pub fn write_str(s: &str) {
     write_bytes(s.as_bytes());
 }
 
+/// Вывести один байт как символ (для эха клавиатуры).
+pub fn write_char(c: u8) {
+    write_byte(c);
+}
+
 /// Вывод u64 в hex с префиксом 0x (без ведущих нулей).
 pub fn write_hex_u64(v: u64) {
     const HEX: &[u8; 16] = b"0123456789abcdef";

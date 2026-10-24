@@ -40,6 +40,10 @@ case "$MODE" in
       echo "==> FAIL: IRQ0/PIT не работает (нет 'PIT: 20 ticks OK')"
       exit 1
     fi
+    if ! grep -aq "PS/2 keyboard ready" "$ROOT/build/qemu-serial.log"; then
+      echo "==> FAIL: клавиатура не инициализирована (нет 'PS/2 keyboard ready')"
+      exit 1
+    fi
     echo "==> SUCCESS: ядро «ИрНа» загрузилось, MBI memory map разобрана."
     ;;
   interactive)

@@ -26,7 +26,8 @@ pub fn dispatch(frame: &InterruptFrame) {
     }
 
     match irq {
-        0 => pit::tick(), // IRQ0 — таймер
+        0 => pit::tick(),                 // IRQ0 — таймер
+        1 => crate::keyboard::handle_irq(), // IRQ1 — PS/2 клавиатура
         _ => {
             UNEXPECTED.fetch_add(1, Ordering::Relaxed);
         }

@@ -122,3 +122,25 @@ pub fn println(s: &str) {
     print(s);
     print("\n");
 }
+
+/// Вывести один ASCII-байт (эхо клавиатуры). Поддерживает \n, \r и backspace.
+pub fn putc(c: u8) {
+    match c {
+        b'\n' => unsafe {
+            COL = 0;
+            ROW += 1;
+            if ROW >= HEIGHT {
+                scroll();
+            }
+        },
+        b'\r' => unsafe { COL = 0 },
+        0x08 => unsafe {
+            if COL > 0 {
+                COL -= 1;
+            }
+            write_cell(ROW, COL, b' ', ATTR);
+        },
+        _ => put_char(c as char),
+    }
+    update_cursor();
+}

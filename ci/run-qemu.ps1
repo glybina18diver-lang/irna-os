@@ -15,10 +15,14 @@ param(
     [int]$SerialPort = 4600,
     [int]$Seconds = 30,
     [int]$EnterAt = 6,
+    [int]$MonitorPort = 4601,
+    [string]$Key = "a",
+    [int]$KeyAt = 6,
     [string]$Log = "$PSScriptRoot\..\artifacts\logs\qemu-serial.log"
 )
 
 $ErrorActionPreference = "Stop"
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
 $qemu = "C:\Program Files\qemu\qemu-system-x86_64.exe"
 if (-not (Test-Path $qemu)) { $qemu = "C:\Projects\OS\tools\qemu\qemu-system-x86_64.exe" }
@@ -34,7 +38,8 @@ $p = Start-Process -FilePath $qemu -ArgumentList @(
     "-m", "512",
     "-display", "none",
     "-no-reboot",
-    "-serial", "tcp:127.0.0.1:$SerialPort,server=on,wait=on"
+    "-serial", "tcp:127.0.0.1:$SerialPort,server=on,wait=on",
+    "-monitor", "tcp:127.0.0.1:$MonitorPort,server=on,wait=off"
 ) -PassThru
 Start-Sleep -Seconds 1
 
@@ -59,11 +64,34 @@ $buf = New-Object byte[] 8192
 $start = Get-Date
 $sent = $false
 
+# Монитор QEMU: через него нажимаем клавишу (PS/2), чтобы проверить IRQ1.
+$mon = $null
+$mstream = $null
+if ($Key -ne "") {
+    $mon = New-Object System.Net.Sockets.TcpClient
+    for ($i = 0; $i -lt 20; $i++) {
+        try { $mon.Connect("127.0.0.1", $MonitorPort); break } catch { Start-Sleep -Milliseconds 250 }
+    }
+    if ($mon.Connected) {
+        $mstream = $mon.GetStream()
+        $mstream.ReadTimeout = 200
+    } else {
+        $mon = $null
+        Write-Host "    WARN: монитор QEMU недоступен, клавиша не будет нажата"
+    }
+}
+$keySent = $false
+
 while (((Get-Date) - $start).TotalSeconds -lt $Seconds) {
     if (-not $sent -and ((Get-Date) - $start).TotalSeconds -ge $EnterAt) {
         $cr = [byte[]](0x0D)
         $stream.Write($cr, 0, 1); $stream.Flush()
         $sent = $true
+    }
+    if ($mon -and -not $keySent -and ((Get-Date) - $start).TotalSeconds -ge $KeyAt) {
+        $cmd = [Text.Encoding]::ASCII.GetBytes("sendkey $Key`n")
+        $mstream.Write($cmd, 0, $cmd.Length); $mstream.Flush()
+        $keySent = $true
     }
     try {
         $n = $stream.Read($buf, 0, $buf.Length)
@@ -71,6 +99,7 @@ while (((Get-Date) - $start).TotalSeconds -lt $Seconds) {
     } catch [System.IO.IOException] { }
 }
 $client.Close()
+if ($mon) { $mon.Close() }
 $exited = $p.HasExited
 if (-not $exited) { $p.Kill() }
 
@@ -85,8 +114,13 @@ $checks = @(
     @{ Name = "MBI разобран";        Pattern = "MBI found\s*=\s*1" },
     @{ Name = "IDT загружена";       Pattern = "IDT loaded" },
     @{ Name = "smoke-тест int3";     Pattern = "IDT int3 smoke OK" },
-    @{ Name = "PIC/PIT: IRQ0";       Pattern = "PIT: 20 ticks OK" }
+    @{ Name = "PIC/PIT: IRQ0";       Pattern = "PIT: 20 ticks OK" },
+    @{ Name = "PS/2 клавиатура";     Pattern = "PS/2 keyboard ready" }
 )
+
+if ($Key -ne "") {
+    $checks += @{ Name = "клавиша '$Key' по IRQ1"; Pattern = "key: '$Key'" }
+}
 
 $fail = 0
 foreach ($c in $checks) {

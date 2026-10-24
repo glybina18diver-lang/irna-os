@@ -13,6 +13,7 @@ mod heap;
 mod idt;
 mod io;
 mod irq;
+mod keyboard;
 mod pic;
 mod pit;
 mod pmm;
@@ -93,6 +94,11 @@ pub extern "C" fn kernel_main() -> ! {
         serial::write_str("WARN: unexpected/spurious IRQs seen\n");
     }
 
+    // --- 3d. PS/2 клавиатура (IRQ1) ---
+    keyboard::init();
+    pic::unmask(1);
+    serial::write_str("PS/2 keyboard ready (IRQ1)\n");
+
     // --- 4. куча ядра (bump-пул 1 МиБ) + проверка через global_allocator ---
     {
         use core::alloc::{GlobalAlloc, Layout};
@@ -127,7 +133,38 @@ pub extern "C" fn kernel_main() -> ! {
     serial::write_str(KERNEL_NAME);
     serial::write_str(" kernel: M1 subsystems OK (bootinfo/PMM/GDT/IDT/PIC/PIT/heap/VGA)\n");
     serial::write_str("==================================================\n");
+    serial::write_str("keyboard echo: нажмите клавиши (serial + VGA)\n");
+
+    // Простой цикл ожидания: IRQ1 кладёт скан-коды в буфер, здесь мы их
+    // разбираем и эхо-выводим. hlt будит процессор по любому прерыванию.
     loop {
+        while let Some(k) = keyboard::poll() {
+            match k {
+                keyboard::Key::Char(c) => {
+                    serial::write_str("key: '");
+                    serial::write_char(c);
+                    serial::write_str("'\n");
+                    vga::putc(c);
+                }
+                keyboard::Key::Space => {
+                    serial::write_str("key: Space\n");
+                    vga::putc(b' ');
+                }
+                keyboard::Key::Enter => {
+                    serial::write_str("key: Enter\n");
+                    vga::putc(b'\n');
+                }
+                keyboard::Key::Backspace => {
+                    serial::write_str("key: Backspace\n");
+                    vga::putc(0x08);
+                }
+                other => {
+                    serial::write_str("key: ");
+                    serial::write_str(other.name());
+                    serial::write_str("\n");
+                }
+            }
+        }
         unsafe { core::arch::asm!("hlt") };
     }
 }
