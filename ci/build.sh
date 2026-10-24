@@ -58,7 +58,10 @@ rm -rf "$BUILD/isodir"
 mkdir -p "$BUILD/isodir/boot/grub"
 cp "$BUILD/irna-kernel.elf" "$BUILD/isodir/boot/irna-kernel.elf"
 cat > "$BUILD/isodir/boot/grub/grub.cfg" <<'CFG'
-set timeout=1
+# timeout=0 — грузимся сразу, без меню. Меню с единственным пунктом добавляло
+# хрупкий отсчёт (в QEMU/TCG он иногда зависает, особенно при terminal_input
+# serial), из-за чего ISO мог не загрузиться без нажатия Enter.
+set timeout=0
 set default=0
 
 # FIX M0 v2: serial-вывод GRUB для диагностики загрузки

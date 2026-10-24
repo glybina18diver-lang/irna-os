@@ -192,7 +192,53 @@ IDT + PIC remap, PIT-таймер, PS/2 клавиатура, framebuffer/syscal
 - Рабочий цикл: push → Actions → artifact → QEMU.
 
 ### Дальше
-M1: IDT/PIC, PIT, PS/2, framebuffer, syscall, планировщик.
+M1: PIC/PIT, PS/2, framebuffer, syscall, планировщик.
+
+---
+
+## 2026-10-24 — M1: IDT и обработчики исключений
+
+### Что сделано
+- `kernel/src/idt.rs` (новый): IDT на 256 записей, заполнены векторы 0..31,
+  gate-дескрипторы 0x8E (present, DPL=0, 64-bit interrupt gate), селектор 0x08.
+  `#DF` (8) направлен на IST1, остальные — на текущий стек ядра.
+- `kernel/src/arch.asm`: NASM-макросы `ISR_NOERR`/`ISR_ERR` генерируют
+  `isr_stub_0..31` (для векторов с error code — без искусственного нуля),
+  общий `isr_common` сохраняет 15 регистров, передаёт `InterruptFrame*` в RDI,
+  выравнивает стек по SysV и после обработчика делает `iretq`. Таблица адресов —
+  `isr_stub_table` (32 × u64) в `.rodata`.
+- `kernel/src/serial.rs`: `write_hex_u64`.
+- `kernel/src/main.rs`: `idt::init()` + smoke-тест `int3`.
+- `ci/build.sh`: GRUB `timeout=0` вместо `1`.
+
+### Результат в QEMU (run 40071614155, ISO из CI)
+```text
+GDT+TSS loaded (RSP0, IST1)
+IDT loaded (32 exception gates)
+
+EXCEPTION 0x3 #BP breakpoint error=0x0 rip=0x10b62f cs=0x8 rflags=0x2
+IDT smoke: #BP handled, returning
+IDT int3 smoke OK
+...
+ИрНа kernel: M1 subsystems OK (bootinfo/PMM/GDT/IDT/heap/VGA)
+```
+`#BP` — ловушка (trap): CPU сохраняет RIP *после* `int3`, поэтому обработчик
+возвращается без правки RIP. `rflags=0x2` — IF=0, прерывания ещё запрещены.
+
+### Дефект стенда (не ядра): зависание меню GRUB
+Локальные прогоны иногда останавливались на отрисовке меню GRUB: отсчёт
+«will be executed automatically in 1s» не запускался, ISO не грузился без
+нажатия Enter (в т.ч. при `-serial file:` и `-serial tcp:`). Это стенд, а не
+ядро: с отправкой CR по serial загрузка проходила и ядро работало штатно.
+Решение — `set timeout=0` в `ci/build.sh`: единственный пункт меню не нужен,
+загрузка сразу. Дополнительно сделан локальный скрипт
+`tools/run-qemu-test.ps1` (serial через TCP + CR в меню, очистка ANSI).
+
+### Коммиты
+- `9d0db8a` — `kernel: IDT + обработчики исключений (векторы 0..31), smoke-тест int3`.
+
+### Дальше
+PIC (8259) remap на 0x20..0x2F + PIT (IRQ0, 100 Гц), затем PS/2.
 
 ---
 

@@ -104,7 +104,7 @@ pub extern "C" fn kernel_main() -> ! {
     serial::write_str("VGA text console OK\n");
 
     serial::write_str(KERNEL_NAME);
-    serial::write_str(" kernel: M1 subsystems OK (bootinfo/PMM/GDT/heap/VGA)\n");
+    serial::write_str(" kernel: M1 subsystems OK (bootinfo/PMM/GDT/IDT/heap/VGA)\n");
     serial::write_str("==================================================\n");
     loop {
         unsafe { core::arch::asm!("hlt") };

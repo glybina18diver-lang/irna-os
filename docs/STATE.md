@@ -5,7 +5,7 @@
 **Дата:** 2026-10-24
 **Этап:** M1 (в работе)
 **Ветка:** `main`
-**Последний коммит:** `fc5fa6a` — исправление MBI (копия до paging, magic из EAX)
+**Последний коммит:** `9d0db8a` — IDT + обработчики исключений (векторы 0..31)
 
 ## Что сделано
 
@@ -20,6 +20,9 @@
 - `kernel/src/bootinfo.rs` — парсер MBI (memory map tag=6).
 - `kernel/src/pmm.rs` — bitmap-аллокатор кадров.
 - `kernel/src/gdt.rs` — GDT + TSS (RSP0, IST1).
+- `kernel/src/idt.rs` — IDT: 32 gate-дескриптора (векторы 0..31), общий
+  обработчик исключений, печать вектора/error/rip/cs/rflags в COM1, `#DF` на IST1.
+  Smoke-тест: `int3` → `#BP` → обработчик → `iretq` (ядро продолжает работу).
 - `kernel/src/heap.rs` — bump-аллокатор на 1 МиБ, `#[global_allocator]`.
 - `kernel/src/vga.rs` — текстовая консоль 80×25, UTF-8 → CP437.
   Кириллица в ROM-шрифте VGA отсутствует — нужен свой 8×16 шрифт.
@@ -35,19 +38,24 @@
 ИрНа kernel: M1 boot start
 MBI magic saved  = 920085129      ← 0x36D76289 (EAX)
 MBI ptr copy     = 1048624        ← 0x100030 (безопасный буфер)
-MBI ptr ebx orig = 2225208        ← 0x21F438 (GRUB)
+MBI ptr ebx orig = 2234720        ← адрес MBI от GRUB
 MBI total size   = 1064
 MBI found        = 1
 MBI tags mask    = 2115447
-MBI free_mem_top = 268304384      ← 0x0FFE0000
-MBI total_free   = 267910144
+MBI free_mem_top = 536739840      ← 0x1FFE0000 (QEMU -m 512)
+MBI total_free   = 536345600
 PMM frames total = 32768          ← реальная карта (cap 128 МиБ)
-PMM frames free  = 32227
+PMM frames free  = 32225
 PMM alloc_frame OK
 GDT+TSS loaded (RSP0, IST1)
+IDT loaded (32 exception gates)
+
+EXCEPTION 0x3 #BP breakpoint error=0x0 rip=0x10b62f cs=0x8 rflags=0x2
+IDT smoke: #BP handled, returning
+IDT int3 smoke OK
 kernel heap alloc OK (100 bytes)
 VGA text console OK
-ИрНа kernel: M1 subsystems OK (bootinfo/PMM/GDT/heap/VGA)
+ИрНа kernel: M1 subsystems OK (bootinfo/PMM/GDT/IDT/heap/VGA)
 ```
 
 `./ci/run-qemu.sh check` → SUCCESS, `grub-file --is-x86-multiboot2` → rc=0.
@@ -62,6 +70,19 @@ VGA text console OK
    в 32-битном trampoline до включения paging и до использования стека.
 4. Тег information request исправлен: type=1 (не 0), с padding до 8 байт,
    `header_length=40`.
+
+### IDT и исключения (2026-10-24)
+- `arch.asm`: NASM-макросы `ISR_NOERR`/`ISR_ERR` → `isr_stub_0..31`; общий
+  `isr_common` сохраняет 15 регистров, кладёт указатель на кадр в RDI,
+  выравнивает стек (`and rsp, -16`) и вызывает `exception_handler`.
+- `idt.rs`: 256 записей (заполнены 0..31), gate = 0x8E, селектор 0x08;
+  `#DF` использует IST1. Обработчик печатает вектор, error code, RIP, CS, RFLAGS
+  (для `#PF` — ещё CR2). `#BP` возвращает управление, остальные — `cli; hlt`.
+- Проверено в QEMU: `EXCEPTION 0x3 ... rip=0x10b62f`, `IDT int3 smoke OK`,
+  далее конвейер доходит до `M1 subsystems OK`.
+- `ci/build.sh`: GRUB `timeout=0` — грузимся сразу, без меню. Меню с одним
+  пунктом иногда зависало в QEMU/TCG (особенно при `terminal_input serial`)
+  и ISO не загружался без нажатия Enter.
 
 ### Восстановление репозитория (2026-10-24)
 - Сравнены `workspace_last` (M1) и `irna-os-main` (M0).
@@ -79,12 +100,11 @@ VGA text console OK
 
 ## Следующие шаги (M1)
 
-1. IDT + обработчики исключений (page fault, double fault, GP).
-2. PIC (8259) + PIT (таймер).
-3. PS/2 клавиатура (scancode set 2, EN/RU).
-4. Framebuffer / LFB (после VGA text).
-5. `syscall`/`sysret` + минимальный libc.
-6. Кооперативный, затем вытесняющий планировщик.
+1. PIC (8259) remap на 0x20..0x2F + PIT (IRQ0, 100 Гц) — следующий шаг.
+2. PS/2 клавиатура (scancode set 2, EN/RU).
+3. Framebuffer / LFB (после VGA text).
+4. `syscall`/`sysret` + минимальный libc.
+5. Кооперативный, затем вытесняющий планировщик.
 
 ## Известные проблемы и ограничения
 

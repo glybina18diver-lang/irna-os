@@ -97,7 +97,7 @@ pub fn init() {
     }
     let ptr = IdtPointer {
         limit: (size_of::<[IdtEntry; 256]>() - 1) as u16,
-        base: unsafe { core::ptr::addr_of!(IDT) as u64 },
+        base: core::ptr::addr_of!(IDT) as u64,
     };
     unsafe {
         asm!(
