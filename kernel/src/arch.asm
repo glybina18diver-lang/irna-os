@@ -29,8 +29,9 @@ EFER_LME equ 1 << 8
 ; их не добавляем. Точка входа = ELF entry (`start`).
 ; Serial-порт инициализируется ядром напрямую (COM1); текст рисуется в VGA RAM
 ; (0xB8000 identity-map'ится страницами ниже) — отдельного MB2-запроса не требуется.
-; header_length = 16 (magic/arch/len/checksum) + 8 (terminator) = 24.
-MB2_HEADER_LEN   equ 16 + 12 + 8       ; mandatory(16) + info-request(12) + end(8) = 36
+; header_length = 16 (magic/arch/len/checksum) + 12 (info request) + 4 (padding)
+;                 + 8 (terminator) = 40. Теги выравниваются по 8 байт.
+MB2_HEADER_LEN   equ 16 + 12 + 4 + 8   ; = 40
 MB2_CHECKSUM     equ (0 - (MB2_MAGIC + MB2_ARCH + MB2_HEADER_LEN)) & 0xFFFFFFFF ; mod 2^32
 
 section .multiboot_header
@@ -46,6 +47,7 @@ mb2_start:
     dd 1                         ; type = information request
     dd 12                        ; size = 4+4+4 (type, size, flags)
     dd 0                         ; flags = 0 -> полный набор тегов
+    dd 0                         ; padding: следующий тег должен быть на 8-байтной границе
 
     ; End tag (type=0, size=8)
     dd 0                         ; type (end)
