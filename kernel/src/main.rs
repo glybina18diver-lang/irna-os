@@ -174,7 +174,9 @@ pub extern "C" fn kernel_main() -> ! {
     serial::write_str(KERNEL_NAME);
     serial::write_str(" kernel: M1 subsystems OK (bootinfo/PMM/GDT/IDT/PIC/PIT/heap/LFB)\n");
     serial::write_str("==================================================\n");
-    serial::write_str("keyboard echo: нажмите клавиши (serial + VGA)\n");
+    serial::write_str("keyboard echo: нажмите клавиши (serial + ");
+    serial::write_str(if fb_ok { "framebuffer" } else { "VGA" });
+    serial::write_str(")\n");
 
     // Простой цикл ожидания: IRQ1 кладёт скан-коды в буфер, здесь мы их
     // разбираем и эхо-выводим. hlt будит процессор по любому прерыванию.
