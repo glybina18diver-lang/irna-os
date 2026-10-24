@@ -21,7 +21,8 @@
 - `kernel/src/pmm.rs` — bitmap-аллокатор кадров.
 - `kernel/src/gdt.rs` — GDT + TSS (RSP0, IST1).
 - `kernel/src/heap.rs` — bump-аллокатор на 1 МиБ, `#[global_allocator]`.
-- `kernel/src/vga.rs` — текстовая консоль 80×25, UTF-8 → CP437 (кириллица).
+- `kernel/src/vga.rs` — текстовая консоль 80×25, UTF-8 → CP437.
+  Кириллица в ROM-шрифте VGA отсутствует — нужен свой 8×16 шрифт.
 - `kernel/src/arch.asm` — trampoline, identity map 0..1 ГиБ (huge pages,
   MMIO read-only), `gdt_reload`, стеки TSS.RSP0/IST1, information-request тег.
 - `kernel/src/main.rs` — конвейер инициализации M1 + smoke-тесты.
@@ -84,6 +85,10 @@ VGA text console OK
   План: дамп 8 слов по EBX (`MBI word = ...`), при необходимости — копировать
   MBI в статический буфер в 32-битном trampoline до включения paging,
   затем включить реальный memory map в PMM и убрать fallback.
+- **VGA text: кириллица — «крякозябры».** ROM-шрифт VGA (CP437) не содержит
+  кириллицу; текущая таблица в `vga.rs` отображает её в символы псевдографики.
+  Serial-вывод при этом корректный (UTF-8). Нужен свой 8×16 шрифт с кириллицей
+  или временная ASCII-заглушка в VGA.
 - Полная сборка ISO требует Linux-тулчейн (GRUB, xorriso) → делается в CI.
 - На ноутбуке нет Rust/NASM; локально только QEMU для тестов.
 - Ноутбук: 4 ГБ RAM, Celeron N2840 → WSL2/VM не использовать.

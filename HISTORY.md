@@ -83,7 +83,7 @@ PMM frames free  = 32235
 PMM alloc_frame OK              ← alloc/free кадра работают
 GDT+TSS loaded (RSP0, IST1)     ← GDT + TSS через gdt_reload (NASM)
 kernel heap alloc OK (100 bytes)← bump-пул 1 МиБ, global_allocator
-VGA text console OK             ← VGA 0xB8000, кириллица (CP437)
+VGA text console OK             ← VGA 0xB8000; кириллица пока не работает (CP437)
 ИрНа kernel: M1 subsystems OK (bootinfo/PMM/GDT/heap/VGA)
 ```
 
@@ -131,8 +131,16 @@ VGA text console OK             ← VGA 0xB8000, кириллица (CP437)
 Дефект не блокирует M1, но должен быть закрыт до M2, где загрузочные модули
 и точная карта памяти обязательны.
 
+### Открытый дефект: кириллица в VGA
+В VGA text mode кириллица отображается «крякозябрами». Причина: ROM-шрифт VGA
+(CP437) не содержит кириллических глифов, а таблица в `vga.rs` отображает
+буквы в коды псевдографики/латиницы. Serial-вывод при этом корректный (UTF-8).
+Решение: свой 8×16 шрифт с кириллицей, загружаемый в VGA plane 2, либо
+временная ASCII-заглушка в VGA.
+
 ### Дальше
-IDT + PIC remap, PIT-таймер, PS/2 клавиатура, затем framebuffer/syscall.
+Закрыть MBI-дефект и кириллицу в VGA, затем IDT + PIC remap, PIT-таймер,
+PS/2 клавиатура, framebuffer/syscall.
 
 ---
 
