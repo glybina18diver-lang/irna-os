@@ -15,6 +15,12 @@ SECTIONS
         KEEP(*(.multiboot_header))
     } :headers
 
+    /* M1: буфер копии MBI. Расположен в начале образа, чтобы не пересекаться
+       с областью, куда GRUB кладёт сам MBI (она может попадать в .bss/стек). */
+    .mbi_copy : {
+        KEEP(*(.mbi_copy))
+    } :headers
+
     .text : ALIGN(16) {
         *(.text .text.*)
     } :headers

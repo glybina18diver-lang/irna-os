@@ -7,19 +7,23 @@
 
 MB2_MAGIC        equ 0xE85250D6
 MB2_ARCH         equ 0
+MB2_BOOT_MAGIC   equ 0x36D76289
+MBI_COPY_SIZE    equ 8192      ; максимальный размер копии MBI (байт)
 CR0_PE  equ 1 << 0
 CR0_WP  equ 1 << 16
 CR0_PG  equ 1 << 31
 CR4_PAE equ 1 << 5
 EFER_LME equ 1 << 8
 
-; ИСПРАВЛЕНИЕ ДЕФЕКТА M1 (корневая причина):
-; В заголовке НЕ было тега type=0 (information request). По спецификации
-; Multiboot2 при ОТСУТСТВИИ такого запроса загрузчик обязан передать минимальный
-; MBI без memory map (тег type=6) — что и наблюдалось: magic=1000 вместо
-; 0x36D76289, free_mem_top=0. Теперь запрошен полный набор информации (flags=0);
-; тег type=0 является header tag (не request), поэтому ограничение GRUB 2.06 на
-; unsupported request-теги (0x14/framebuffer) его не затрагивает.
+; ИСПРАВЛЕНИЕ ДЕФЕКТА M1 (корневая причина — 2026-10-24):
+; 1) Rust-парсер читал адрес самой переменной mb_mboot_ptr, а не её значение.
+; 2) Magic Multiboot2 передаётся в EAX, а НЕ лежит в начале MBI: по смещению 0
+;    находится total_size. Проверка magic по MBI всегда проваливалась.
+; 3) GRUB размещает MBI в области, пересекающейся с .bss ядра (в текущей
+;    раскладке — внутри стека ядра). Поэтому MBI копируется в статический буфер
+;    в самом начале trampoline, до настройки page tables и до использования
+;    стека ядра. Дальше Rust работает только с копией.
+; Тег information request имеет type=1 (type=0 — это end tag).
 ; ИСПРАВЛЕНИЕ ДЕФЕКТА M0 v4:
 ; GRUB 2.06 (Debian) не понимает request-теги framebuffer (unsupported tag 0x14) —
 ; их не добавляем. Точка входа = ELF entry (`start`).
@@ -37,9 +41,9 @@ mb2_start:
     dd MB2_HEADER_LEN
     dd MB2_CHECKSUM
 
-    ; Tag: information request (type=0) — запросить ВСЮ информацию загрузчика,
-    ; включая memory map (tag 6). Без него GRUB передаёт урезанный MBI (дефект M1).
-    dd 0                         ; type = information request
+    ; Tag: information request (type=1) — запросить ВСЮ информацию загрузчика,
+    ; включая memory map (tag 6). type=0 — это end tag, не request.
+    dd 1                         ; type = information request
     dd 12                        ; size = 4+4+4 (type, size, flags)
     dd 0                         ; flags = 0 -> полный набор тегов
 
@@ -47,6 +51,14 @@ mb2_start:
     dd 0                         ; type (end)
     dd 8                         ; size
 mb2_end:
+
+; Статический буфер для копии MBI. Размещается linker.ld сразу после
+; .multiboot_header, т.е. в начале образа — гарантированно ниже области,
+; куда GRUB кладёт MBI и где расположены стек и куча ядра.
+section .mbi_copy
+align 16
+global mbi_copy
+mbi_copy: times MBI_COPY_SIZE db 0
 
 section .text
 bits 32
@@ -56,10 +68,29 @@ global mb_mboot_ptr           ; для Rust: указатель на струк�
 global mb_mboot_ebx           ; диагностика M1: сырое значение EBX на входе (дубль)
 start:
     cli
-    ; EBX от GRUB = указатель на Multiboot-структуру. Сохраняем в памяти ядра
-    ; (символ доступен из Rust) — M1 читает из неё memory map и загрузочные модули.
-    mov [rel mb_mboot_ptr], ebx
-    mov [rel mb_mboot_ebx], ebx   ; дубль для диагностики расхождения
+    cld
+    ; GRUB Multiboot2: EAX = 0x36D76289 (magic), EBX = адрес MBI.
+    ; Magic в самой структуре MBI отсутствует (offset 0 = total_size).
+    mov [rel mb_mboot_ebx], ebx
+    mov [rel mb_mboot_magic], eax
+
+    ; Копируем MBI в статический буфер до включения paging и до использования
+    ; стека ядра: GRUB может разместить MBI поверх .bss (в т.ч. стека).
+    cmp eax, MB2_BOOT_MAGIC
+    jne .mbi_done
+    mov esi, ebx                  ; источник — MBI от GRUB
+    mov edi, mbi_copy             ; приёмник — буфер в начале образа
+    mov ecx, [ebx]                ; offset 0: total_size
+    test ecx, ecx
+    jz .mbi_done
+    cmp ecx, MBI_COPY_SIZE
+    jbe .mbi_size_ok
+    mov ecx, MBI_COPY_SIZE        ; защита от слишком большого MBI
+.mbi_size_ok:
+    rep movsb
+    mov eax, mbi_copy
+    mov [rel mb_mboot_ptr], eax   ; Rust читает только копию
+.mbi_done:
     lea esp, [scratch_stack_end_32 - 4]
 
     ; CR4.PAE
@@ -168,8 +199,10 @@ pdpt: resb 4096
 pd_lo: resb 4096
 pd_hi: resb 4096
 global mb_mboot_ptr
-mb_mboot_ptr: resd 1          ; u32: указатель на Multiboot-структуру от GRUB (EBX)
-mb_mboot_ebx: resd 1          ; u32: дубль EBX (диагностика M1)
+mb_mboot_ptr: resd 1          ; u32: указатель на КОПИЮ Multiboot-структуры
+mb_mboot_ebx: resd 1          ; u32: исходный EBX от GRUB (диагностика)
+global mb_mboot_magic
+mb_mboot_magic: resd 1        ; u32: EAX от GRUB (0x36D76289)
 align 16
 stack_bottom: resb 16384      ; 16 KiB стек ядра (M0/M1)
 stack_top:

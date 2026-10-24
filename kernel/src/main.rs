@@ -27,15 +27,11 @@ pub extern "C" fn kernel_main() -> ! {
 
     // --- 1. память загрузчика: разбираем MBI (EBX сохранён trampoline'ом) ---
     let info = bootinfo::parse();
-    let (p1, p2) = bootinfo::raw_ptrs();
-    serial_line("MBI ptr saved    = ", p1);
-    serial_line("MBI ptr ebx dup  = ", p2);
-    if p1 != 0 {
-        for w in 0..8u64 {
-            let v = unsafe { core::ptr::read_volatile((p1 + w * 4) as *const u32) };
-            serial_line("MBI word         = ", v as u64);
-        }
-    }
+    let (p1, p2, magic) = bootinfo::raw_ptrs();
+    serial_line("MBI magic saved  = ", magic);
+    serial_line("MBI ptr copy     = ", p1);
+    serial_line("MBI ptr ebx orig = ", p2);
+    serial_line("MBI total size   = ", info.mbi_size as u64);
     serial_line("MBI found        = ", info.mbi_found as u64);
     serial_line("MBI tags mask    = ", info.tags_seen);
     serial_line("MBI free_mem_top = ", info.free_mem_top);

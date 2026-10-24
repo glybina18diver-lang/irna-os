@@ -3,8 +3,9 @@
 use core::ffi::c_void;
 
 extern "C" {
-    static mb_mboot_ptr: u32; // сохранён trampoline (arch.asm): EBX от GRUB
-    static mb_mboot_ebx: u32; // дубль EBX — диагностика
+    static mb_mboot_ptr: u32; // arch.asm: адрес КОПИИ MBI (безопасный буфер)
+    static mb_mboot_ebx: u32; // arch.asm: исходный EBX от GRUB (диагностика)
+    static mb_mboot_magic: u32; // arch.asm: EAX от GRUB (0x36D76289)
 }
 
 const MB2_BOOT_MAGIC: u32 = 0x36D7_6289;
@@ -30,10 +31,15 @@ struct MemmapTag {
     // далее memory_area[entry_size / 24]
 }
 
-/// Итог разбора memory map загрузчика.
-/// Диагностика: сырые значения указателя MBI, сохранённые trampoline'ом.
-pub fn raw_ptrs() -> (u64, u64) {
-    unsafe { (mb_mboot_ptr as u64, mb_mboot_ebx as u64) }
+/// Диагностика: адрес копии MBI, исходный EBX и magic из EAX.
+pub fn raw_ptrs() -> (u64, u64, u64) {
+    unsafe {
+        (
+            mb_mboot_ptr as u64,
+            mb_mboot_ebx as u64,
+            mb_mboot_magic as u64,
+        )
+    }
 }
 
 pub struct BootInfo {
@@ -44,24 +50,39 @@ pub struct BootInfo {
     pub total_free: u64,
     /// Диагностика парсера: найден ли MBI и какие теги встречены.
     pub mbi_found: bool,
+    /// total_size из заголовка MBI (offset 0), байт.
+    pub mbi_size: u32,
     /// Битовая маска тегов < 64, встретившихся при разборе (для serial-дампа).
     pub tags_seen: u64,
 }
 
 /// Разбор MBI. Вызывается ОДИН раз на раннем этапе, до включения прерываний.
 pub fn parse() -> BootInfo {
-    let mut info = BootInfo { free_mem_top: 0, total_free: 0, mbi_found: false, tags_seen: 0 };
-    let mbi = unsafe { &raw const mb_mboot_ptr } as *const u32;
-    if mbi.is_null() {
-        return info;
+    let mut info = BootInfo {
+        free_mem_top: 0,
+        total_free: 0,
+        mbi_found: false,
+        mbi_size: 0,
+        tags_seen: 0,
+    };
+    // ВАЖНО: читаем ЗНАЧЕНИЕ статической переменной (адрес копии MBI),
+    // а не адрес самой переменной. Раньше здесь был `&raw const mb_mboot_ptr`,
+    // из-за чего парсер читал память самой переменной, а не структуру MBI.
+    let mbi_addr = unsafe { mb_mboot_ptr } as usize;
+    let magic = unsafe { mb_mboot_magic };
+    if mbi_addr == 0 || magic != MB2_BOOT_MAGIC {
+        return info; // не наш формат — аллокатор использует fallback-предел
     }
+    let mbi = mbi_addr as *const u32;
     unsafe {
-        let magic = *mbi;
-        if magic != MB2_BOOT_MAGIC {
-            return info; // не наш формат — аллокатор использует fallback-предел
+        // Multiboot2: offset 0 = total_size, offset 4 = reserved,
+        // offset 8 = первый тег. Magic в структуре отсутствует (он в EAX).
+        let total = *mbi as usize;
+        if total < 16 || total > 8192 {
+            return info; // повреждённый/неправдоподобный размер
         }
         info.mbi_found = true;
-        let total = *mbi.add(1) as usize;
+        info.mbi_size = total as u32;
         let mut off = 8usize;
         while off + 8 <= total {
             let tag = (mbi as *const u8).add(off) as *const TagHeader;
