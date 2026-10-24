@@ -136,10 +136,19 @@ pub fn map_user_4k(virt: u64, phys: u64, writable: bool) -> bool {
 
     unsafe {
         let pdpt_tbl = pdpt_ptr();
+        let pml4e = core::ptr::read_volatile(pml4_ptr());
+        if pml4e & P == 0 {
+            return false;
+        }
+        // U/S проверяется на КАЖДОМ уровне: без него в PML4/PDPT/PD доступ из
+        // ring 3 даёт #PF (protection violation), даже если PT-запись с U/S.
+        core::ptr::write_volatile(pml4_ptr(), pml4e | US);
+
         let pde = core::ptr::read_volatile(pdpt_tbl.add(pdpt_idx));
         if pde & P == 0 || pde & PS != 0 {
             return false; // нет PD или 1-ГиБ huge: в M1 не поддерживаем
         }
+        core::ptr::write_volatile(pdpt_tbl.add(pdpt_idx), pde | US);
         let pd = (pde & !0xFFF) as *mut u64;
         let entry = core::ptr::read_volatile(pd.add(pd_idx));
         if entry & P == 0 {
@@ -157,11 +166,13 @@ pub fn map_user_4k(virt: u64, phys: u64, writable: bool) -> bool {
                 let pa = base + (i as u64) * 4096;
                 core::ptr::write_volatile(pt.add(i), pa | P | RW);
             }
-            // флаги RW/US наследуются от huge-записи
-            let flags = entry & (RW | US);
+            // PD ссылается на PT: RW наследуется, U/S добавляется — иначе
+            // пользователь не пройдёт проверку на уровне PD.
+            let flags = (entry & RW) | US;
             core::ptr::write_volatile(pd.add(pd_idx), (pt as u64) | P | flags);
         } else {
             pt = (entry & !0xFFF) as *mut u64;
+            core::ptr::write_volatile(pd.add(pd_idx), entry | US);
         }
 
         let mut flags = P | US;
