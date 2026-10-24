@@ -1,4 +1,4 @@
-# ci/run-qemu.ps1 — локальная проверка ISO «ИрНа» в QEMU под Windows.
+﻿# ci/run-qemu.ps1 — локальная проверка ISO «ИрНа» в QEMU под Windows.
 #
 # Зачем отдельный скрипт: на ноутбуке нет WSL, а `ci/run-qemu.sh` требует bash.
 # Serial выводится через TCP (без буферизации, в отличие от `-serial file:`),
@@ -23,7 +23,9 @@ param(
     [int]$QmpPort = 4601,
     [string]$Key = "a",
     [int]$KeyAt = 6,
-    [string]$Log = "$PSScriptRoot\..\artifacts\logs\qemu-serial.log"
+    [string]$Log = "$PSScriptRoot\..\artifacts\logs\qemu-serial.log",
+    [string]$Screenshot = "",
+    [int]$ScreenshotAt = 0
 )
 
 $ErrorActionPreference = "Stop"
@@ -100,6 +102,8 @@ if ($Key -ne "") {
     }
 }
 $keySent = $false
+$shotSent = $false
+if ($Screenshot -ne "" -and $ScreenshotAt -le 0) { $ScreenshotAt = $KeyAt + 2 }
 
 while (((Get-Date) - $start).TotalSeconds -lt $Seconds) {
     $elapsed = ((Get-Date) - $start).TotalSeconds
@@ -118,6 +122,10 @@ while (((Get-Date) - $start).TotalSeconds -lt $Seconds) {
         $keySent = $true
     }
 
+    if ($Screenshot -ne "" -and -not $shotSent -and $elapsed -ge $ScreenshotAt) {
+        Send-Qmp @{ execute = "screendump"; arguments = @{ filename = $Screenshot; format = "png" } }
+        $shotSent = $true
+    }
     try {
         $n = $stream.Read($buf, 0, $buf.Length)
         if ($n -gt 0) { $bytes.AddRange([byte[]]$buf[0..($n - 1)]) }
@@ -140,7 +148,8 @@ $checks = @(
     @{ Name = "IDT загружена";       Pattern = "IDT loaded" },
     @{ Name = "smoke-тест int3";     Pattern = "IDT int3 smoke OK" },
     @{ Name = "PIC/PIT: IRQ0";       Pattern = "PIT: 20 ticks OK" },
-    @{ Name = "PS/2 клавиатура";     Pattern = "PS/2 keyboard ready" }
+    @{ Name = "PS/2 клавиатура";     Pattern = "PS/2 keyboard ready" },
+    @{ Name = "framebuffer (LFB)";   Pattern = "framebuffer console OK" }
 )
 
 if ($Key -ne "") {

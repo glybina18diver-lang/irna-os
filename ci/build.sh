@@ -64,6 +64,9 @@ cat > "$BUILD/isodir/boot/grub/grub.cfg" <<'CFG'
 set timeout=0
 set default=0
 
+# M1: видеодрайверы для LFB (GRUB сам переключит режим по framebuffer-тегу).
+insmod all_video
+
 # FIX M0 v2: serial-вывод GRUB для диагностики загрузки
 serial --speed=115200 --unit=0 --word=8 --parity=no --stop=1
 terminal_input console serial

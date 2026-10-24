@@ -44,7 +44,11 @@ case "$MODE" in
       echo "==> FAIL: клавиатура не инициализирована (нет 'PS/2 keyboard ready')"
       exit 1
     fi
-    echo "==> SUCCESS: ядро «ИрНа» загрузилось, MBI memory map разобрана."
+    if ! grep -aq "framebuffer console OK" "$ROOT/build/qemu-serial.log"; then
+      echo "==> FAIL: LFB не инициализирован (нет 'framebuffer console OK')"
+      exit 1
+    fi
+    echo "==> SUCCESS: ядро «ИрНа» загрузилось, MBI memory map разобрана, LFB работает."
     ;;
   interactive)
     echo "==> QEMU (BIOS, окно VGA + serial в терминале). Ctrl-A x — выход."
