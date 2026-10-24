@@ -138,7 +138,12 @@ pub fn init() {
 
     unsafe {
         wait_write();
-        io::outb(CMD, 0xAE); // enable keyboard
+        io::outb(CMD, 0xAE); // enable keyboard interface
+        // 0xF4 — enable scanning. Без этого QEMU/реальная клавиатура может
+        // остаться в состоянии «scan disabled» (0xF5 после POST) и не выдавать
+        // скан-коды вообще. Ответ 0xFA придёт в буфер и будет прочитан IRQ1.
+        wait_write();
+        io::outb(DATA, 0xF4);
     }
 }
 
