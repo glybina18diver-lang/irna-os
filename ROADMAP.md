@@ -9,10 +9,10 @@
 - [x] Скрипты ci/build.sh, ci/run-qemu.sh
 
 ## M1 — Базовое ядро (Rust)  [~]
-- [~] GDT/IDT, обработчики прерываний, PIC  (GDT+TSS готовы; IDT/PIC — нет)
+- [x] GDT/IDT, обработчики исключений, PIC  (IDT: 48 гейтов, PIC: 0x20..0x2F)
 - [x] Физический аллокатор (frame allocator)
 - [x] Виртуальная память (paging), heap + kmalloc  (identity map + bump-heap)
-- [ ] Таймер (PIT) + cooperative планировщик
+- [~] Таймер (PIT 100 Гц) + cooperative планировщик  (PIT готов; планировщик — нет)
 - [~] Framebuffer-вывод (VGA text -> LFB)  (VGA text готов; LFB — нет)
 - [ ] PS/2 клавиатура (scancode set 2, EN/RU базовая раскладка)
 - [ ] syscall/sysret + libc-mini (write/read/exit)

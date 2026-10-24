@@ -5,7 +5,7 @@
 **Дата:** 2026-10-24
 **Этап:** M1 (в работе)
 **Ветка:** `main`
-**Последний коммит:** `9d0db8a` — IDT + обработчики исключений (векторы 0..31)
+**Последний коммит:** `aeebf0c` — PIC remap + PIT 100 Гц, IRQ0
 
 ## Что сделано
 
@@ -20,9 +20,14 @@
 - `kernel/src/bootinfo.rs` — парсер MBI (memory map tag=6).
 - `kernel/src/pmm.rs` — bitmap-аллокатор кадров.
 - `kernel/src/gdt.rs` — GDT + TSS (RSP0, IST1).
-- `kernel/src/idt.rs` — IDT: 32 gate-дескриптора (векторы 0..31), общий
-  обработчик исключений, печать вектора/error/rip/cs/rflags в COM1, `#DF` на IST1.
+- `kernel/src/idt.rs` — IDT: 48 gate-дескрипторов (0..31 исключения, 32..47 IRQ),
+  общий обработчик, печать вектора/error/rip/cs/rflags в COM1, `#DF` на IST1.
   Smoke-тест: `int3` → `#BP` → обработчик → `iretq` (ядро продолжает работу).
+- `kernel/src/io.rs` — `inb`/`outb`/`io_wait`.
+- `kernel/src/pic.rs` — 8259A: remap на 0x20..0x2F, маски, EOI, чтение ISR.
+- `kernel/src/pit.rs` — канал 0, режим 3, 100 Гц (делитель 11931), счётчик тиков,
+  `wait_ticks` (спит в `hlt`).
+- `kernel/src/irq.rs` — диспетчер IRQ, ложные IRQ7/IRQ15, счётчик неожиданных.
 - `kernel/src/heap.rs` — bump-аллокатор на 1 МиБ, `#[global_allocator]`.
 - `kernel/src/vga.rs` — текстовая консоль 80×25, UTF-8 → CP437.
   Кириллица в ROM-шрифте VGA отсутствует — нужен свой 8×16 шрифт.
@@ -48,14 +53,18 @@ PMM frames total = 32768          ← реальная карта (cap 128 Ми�
 PMM frames free  = 32225
 PMM alloc_frame OK
 GDT+TSS loaded (RSP0, IST1)
-IDT loaded (32 exception gates)
+IDT loaded (48 gates: 32 exception + 16 IRQ)
 
-EXCEPTION 0x3 #BP breakpoint error=0x0 rip=0x10b62f cs=0x8 rflags=0x2
+EXCEPTION 0x3 #BP breakpoint error=0x0 rip=0x10b6af cs=0x8 rflags=0x2
 IDT smoke: #BP handled, returning
 IDT int3 smoke OK
+PIC remapped (IRQ 0x20..0x2F)
+PIT programmed (100 Hz)
+interrupts enabled (IF=1)
+PIT: 20 ticks OK
 kernel heap alloc OK (100 bytes)
 VGA text console OK
-ИрНа kernel: M1 subsystems OK (bootinfo/PMM/GDT/IDT/heap/VGA)
+ИрНа kernel: M1 subsystems OK (bootinfo/PMM/GDT/IDT/PIC/PIT/heap/VGA)
 ```
 
 `./ci/run-qemu.sh check` → SUCCESS, `grub-file --is-x86-multiboot2` → rc=0.
@@ -84,6 +93,21 @@ VGA text console OK
   пунктом иногда зависало в QEMU/TCG (особенно при `terminal_input serial`)
   и ISO не загружался без нажатия Enter.
 
+### PIC + PIT (2026-10-24)
+- `pic.rs`: 8259A перепрошит с BIOS-диапазона 0x08..0x0F на 0x20..0x2F
+  (master 0x20, slave 0x28, каскад на IRQ2), после init все линии замаскированы.
+  Есть `mask`/`unmask`/`eoi`/`eoi_master_only`/`read_isr`.
+- `pit.rs`: канал 0, режим 3, делитель 11931 → 100.007 Гц; атомарный счётчик
+  тиков, `wait_ticks` спит в `hlt`.
+- `irq.rs`: диспетчер для векторов ≥ 0x20; IRQ0 → `pit::tick()`; ложные
+  IRQ7/IRQ15 определяются чтением ISR (master EOI только для IRQ15);
+  неожиданные линии считаются.
+- IDT расширена до 48 гейтов; общий stub `arch.asm` теперь зовёт
+  `interrupt_handler` (исключения и IRQ в одной точке входа).
+- Smoke-тест: `sti` + ожидание 20 тиков. Он проверяет сразу три вещи —
+  приход IRQ0, корректный EOI (иначе второй тик не придёт) и возврат `iretq`.
+- Serial: `PIC remapped`, `PIT programmed (100 Hz)`, `PIT: 20 ticks OK`.
+
 ### Восстановление репозитория (2026-10-24)
 - Сравнены `workspace_last` (M1) и `irna-os-main` (M0).
 - Подтверждено: M0-снимок полностью входит в M1-рабочую область.
@@ -100,11 +124,10 @@ VGA text console OK
 
 ## Следующие шаги (M1)
 
-1. PIC (8259) remap на 0x20..0x2F + PIT (IRQ0, 100 Гц) — следующий шаг.
-2. PS/2 клавиатура (scancode set 2, EN/RU).
-3. Framebuffer / LFB (после VGA text).
-4. `syscall`/`sysret` + минимальный libc.
-5. Кооперативный, затем вытесняющий планировщик.
+1. PS/2 клавиатура (IRQ1, scancode set 2 → set 1, EN/RU) — следующий шаг.
+2. Framebuffer / LFB (после VGA text).
+3. `syscall`/`sysret` + минимальный libc.
+4. Кооперативный, затем вытесняющий планировщик.
 
 ## Известные проблемы и ограничения
 

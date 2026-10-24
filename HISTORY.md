@@ -242,6 +242,53 @@ PIC (8259) remap на 0x20..0x2F + PIT (IRQ0, 100 Гц), затем PS/2.
 
 ---
 
+## 2026-10-24 — M1: PIC remap и PIT 100 Гц
+
+### Что сделано
+- `kernel/src/io.rs` — `inb`/`outb`/`io_wait` (порты x86-64).
+- `kernel/src/pic.rs` — 8259A: ICW1..ICW4, master → 0x20, slave → 0x28,
+  каскад на IRQ2, маска 0xFF после init; `mask`/`unmask`/`eoi`/
+  `eoi_master_only`/`read_isr`.
+- `kernel/src/pit.rs` — канал 0, режим 3 (square wave), делитель
+  `1 193 182 / 100 = 11931` → 100.007 Гц; `AtomicU64` счётчик тиков;
+  `wait_ticks(n)` спит в `hlt`.
+- `kernel/src/irq.rs` — диспетчер IRQ: IRQ0 → `pit::tick()`, EOI после
+  обработки; ложные IRQ7 (без EOI) и IRQ15 (EOI только master) детектируются
+  чтением регистра ISR; неожиданные линии считаются.
+- `kernel/src/idt.rs` — IDT расширена до 48 гейтов (0..31 исключения,
+  32..47 IRQ); общий stub вызывает `interrupt_handler`, который для векторов
+  ≥ 0x20 уходит в `irq::dispatch`.
+- `kernel/src/arch.asm` — 16 новых заглушек `isr_stub_32..47` и записи в
+  `isr_stub_table`.
+
+### Результат в QEMU (run 40075980853)
+```text
+IDT loaded (48 gates: 32 exception + 16 IRQ)
+EXCEPTION 0x3 #BP breakpoint error=0x0 rip=0x10b6af cs=0x8 rflags=0x2
+IDT smoke: #BP handled, returning
+IDT int3 smoke OK
+PIC remapped (IRQ 0x20..0x2F)
+PIT programmed (100 Hz)
+interrupts enabled (IF=1)
+PIT: 20 ticks OK
+...
+ИрНа kernel: M1 subsystems OK (bootinfo/PMM/GDT/IDT/PIC/PIT/heap/VGA)
+```
+
+### Почему smoke-тест ждёт именно 20 тиков
+Ожидание 20 тиков проверяет не только «прерывание пришло», но и EOI:
+без подтверждения PIC не поднимет IRQ0 повторно, и счётчик остановился бы
+на 1. Дополнительно это проверяет, что `iretq` восстанавливает контекст —
+ядро продолжает работу после каждого прерывания.
+
+### Коммиты
+- `aeebf0c` — `kernel: PIC remap + PIT 100 Hz, IRQ0 через общий stub`.
+
+### Дальше
+PS/2 клавиатура (IRQ1), затем framebuffer.
+
+---
+
 ## Правила ведения файла
 - После каждого завершённого этапа добавлять новый раздел с датой.
 - Фиксировать корневые причины ошибок (не обходки), артефакты, хеш-подтверждения (checksum, rc) и коммиты.
