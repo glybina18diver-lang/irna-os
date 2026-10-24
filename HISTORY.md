@@ -442,6 +442,85 @@ key: 'a'
 
 ---
 
+## 2026-10-24 — M1: SYSCALL/SYSRET и первый выход в ring 3
+
+### Что сделано
+- `kernel/src/gdt.rs`: порядок user-сегментов приведён к требованию SYSRET —
+  user-data `0x18|3` (индекс 3), user-code `0x20|3` (индекс 4). Процессор
+  вычисляет `CS = STAR[63:48]+16`, `SS = STAR[63:48]+8`, поэтому data обязана
+  идти перед code.
+- `kernel/src/syscall.rs` (новый):
+  - MSR: `EFER.SCE=1`, `STAR = 0x13<<48 | 0x08<<32`,
+    `LSTAR = syscall_entry`, `FMASK = 0x47700` (TF|IF|DF|NT|AC);
+  - диспетчер `syscall_dispatch` с Linux-подобным ABI (номер в RAX,
+    аргументы RDI/RSI/RDX/R10/R8/R9, результат в RAX, ошибка — `-errno`);
+  - `write(fd, buf, len)` для fd 1/2 (serial + консоль), `exit(code)`,
+    `read` → `-ENOSYS` до появления блокирующего ввода.
+- `kernel/src/user.rs` (новый) — smoke-тест ring 3: две 4-КиБ страницы
+  (код и стек) с U/S=1, код `write(1, msg, len); exit(0)`, сообщение на
+  кириллице. После `sys_exit` управление возвращается в ядро.
+- `kernel/src/paging.rs` — `map_user_4k(virt, phys, writable)`:
+  - расщепляет 2-МиБ huge-страницу на PT (identity-отображение сохраняется);
+  - выставляет U/S **на всех уровнях** (PML4, PDPT, PD, PT).
+- `kernel/src/arch.asm`:
+  - `syscall_entry` — сохраняет user RSP, переключается на отдельный стек
+    16 КиБ, сохраняет 16 регистров (включая RCX/R11), зовёт диспетчер,
+    восстанавливает контекст и делает `sysretq`;
+  - `syscall_exit_to_kernel` — возврат на основной стек ядра + `sti` +
+    переход в `kernel_after_user`;
+  - `enter_user_mode` — `iretq` в ring 3 (SS=0x1B, CS=0x23, IF=1),
+    регистры обнуляются.
+- `kernel/src/main.rs` — `syscall::init()` в конвейере, цикл эха вынесен
+  в `pub fn echo_loop()`, куда возвращается `kernel_after_user`.
+- `ci/run-qemu.{sh,ps1}` — проверки `SYSCALL/SYSRET enabled` и
+  `syscall/sysret round-trip OK`.
+
+### Результат в QEMU (run 40084859952, ISO из CI)
+```text
+SYSCALL/SYSRET enabled (EFER.SCE, STAR/LSTAR/FMASK)
+ИрНа kernel: M1 subsystems OK (bootinfo/PMM/GDT/IDT/PIC/PIT/heap/LFB/syscall)
+==================================================
+ring 3: iretq в user mode, код по адресу 0x400000, стек 0x403000
+Привет из ring 3! syscall/sysret OK
+ring 3: syscall/sysret round-trip OK
+keyboard echo: нажмите клавиши (serial + framebuffer)
+key: 'a'
+```
+Скриншот подтверждает: сообщение из ring 3 напечатано в LFB, кириллица
+корректна, после `sys_exit` ядро продолжило работу и обрабатывает IRQ1.
+
+### Корневая причина #PF при первом входе в ring 3
+Первый прогон дал `EXCEPTION 0xe #PF error=0x5 rip=0x400000 cs=0x23`.
+Код 0x5 = present + user + read (выборка инструкции): страница присутствует,
+но доступ из ring 3 запрещён. Причина — флаг U/S выставлялся только в
+PT-записи, а x86 требует U/S=1 **на каждом уровне** трансляции (PML4 → PDPT →
+PD → PT); иначе доступ отклоняется на верхнем уровне. Исправлено в
+`map_user_4k`: U/S добавляется в PML4[0], запись PDPT и PD. Это безопасно:
+итоговое право — конъюнкция уровней, поэтому identity-страницы в расщеплённой
+таблице остаются supervisor-only (в их PT-записях U/S нет).
+
+### Ограничения M1 (осознанные)
+- Вход SYSCALL использует статический стек и статическую переменную для
+  user RSP → вложенные syscall из ring 0 не поддерживаются. В M2 будет
+  per-CPU GS-база + `swapgs`, как в Linux.
+- `write` читает пользовательский буфер напрямую: SMAP выключен, проверки
+  диапазона нет (кроме `len <= 4096`). Копирование `copy_from_user` — в M2.
+- Тестовая user-программа — машинный код в `user.rs`, а не ELF. ELF-загрузчик
+  и адресные пространства процессов — M2.
+- Страница кода после записи переводится в RO, но остаётся исполняемой
+  (NXE не включён).
+
+### Коммиты
+- `fab6a99` — `kernel: syscall/sysret, MSR STAR/LSTAR/FMASK, smoke-тест ring 3 (write/exit)`.
+- `9b1c968` — `ci: проверки SYSCALL/SYSRET и возврата из ring 3`.
+- `5bd59c4` — `kernel: paging — U/S на всех уровнях таблицы для user-страниц`.
+
+### Дальше
+Кооперативный планировщик (переключение контекста на одном ядре), затем
+вытесняющий по PIT; после — ELF-загрузчик и адресные пространства (M2).
+
+---
+
 ## Правила ведения файла
 - После каждого завершённого этапа добавлять новый раздел с датой.
 - Фиксировать корневые причины ошибок (не обходки), артефакты, хеш-подтверждения (checksum, rc) и коммиты.

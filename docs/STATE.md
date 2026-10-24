@@ -5,7 +5,7 @@
 **Дата:** 2026-10-24
 **Этап:** M1 (в работе)
 **Ветка:** `main`
-**Последний коммит:** `4e7bb00` — стенд: клавиша и скриншот по событию
+**Последний коммит:** `5bd59c4` — paging: U/S на всех уровнях для user-страниц
 
 ## Что сделано
 
@@ -40,7 +40,12 @@
 - `kernel/src/font.rs` — 165 глифов 10×16 (PT Mono, OFL): ASCII, кириллица
   А-я + Ё/ё, `– — « »`. Генерируется `tools/gen-font8x16.ps1`.
 - `kernel/src/console.rs` — диспетчер вывода: LFB, иначе VGA text.
-- `kernel/src/paging.rs` — `map_identity_2m` для LFB (пул из 8 page tables).
+- `kernel/src/paging.rs` — `map_identity_2m` для LFB (пул из 8 page tables)
+  и `map_user_4k` (расщепление huge-страницы, U/S на всех уровнях).
+- `kernel/src/syscall.rs` — `EFER.SCE`, `STAR/LSTAR/FMASK`, диспетчер
+  `write`/`exit` (Linux-подобный ABI), `read` → `-ENOSYS`.
+- `kernel/src/user.rs` — smoke-тест ring 3: страницы кода/стека с U/S,
+  `write` кириллицей и `exit`, возврат в ядро.
 - `kernel/src/arch.asm` — trampoline, identity map 0..1 ГиБ (huge pages,
   MMIO read-only), `gdt_reload`, стеки TSS.RSP0/IST1, information-request тег
   (type=1), request-тег framebuffer (type=5, 1024×768×32), копия MBI
@@ -82,8 +87,12 @@ LFB bpp          = 24
 framebuffer console OK (800x600, 80x37 chars)
 kernel heap alloc OK (100 bytes)
 framebuffer console OK
-ИрНа kernel: M1 subsystems OK (bootinfo/PMM/GDT/IDT/PIC/PIT/heap/LFB)
+SYSCALL/SYSRET enabled (EFER.SCE, STAR/LSTAR/FMASK)
+ИрНа kernel: M1 subsystems OK (bootinfo/PMM/GDT/IDT/PIC/PIT/heap/LFB/syscall)
 ==================================================
+ring 3: iretq в user mode, код по адресу 0x400000, стек 0x403000
+Привет из ring 3! syscall/sysret OK
+ring 3: syscall/sysret round-trip OK
 keyboard echo: нажмите клавиши (serial + framebuffer)
 key: 'a'
 ```
@@ -164,6 +173,21 @@ key: 'a'
 - GRUB сам выбирает режим по полям тега (в этом окружении — 800×600×24);
   ядро к конкретному режиму не привязано.
 
+### SYSCALL/SYSRET и ring 3 (2026-10-24)
+- GDT: user-data `0x18|3` перед user-code `0x20|3` — требование SYSRET
+  (`CS = STAR[63:48]+16`, `SS = +8`).
+- MSR: `EFER.SCE`, `STAR = 0x13<<48 | 0x08<<32`, `LSTAR = syscall_entry`,
+  `FMASK = 0x47700`.
+- `syscall_entry` (arch.asm): сохраняет user RSP, переключается на стек 16 КиБ,
+  сохраняет RCX/R11 и 14 регистров, зовёт `syscall_dispatch`, возвращает
+  `sysretq`. Вложенные syscall из ring 0 не поддерживаются (M1).
+- `enter_user_mode` — `iretq` в ring 3; `syscall_exit_to_kernel` —
+  возврат на основной стек + `sti` + `kernel_after_user`.
+- `map_user_4k` расщепляет 2-МиБ huge-страницу и ставит U/S на всех уровнях
+  (без этого — `#PF error=0x5` при выборке инструкции из ring 3).
+- Проверено (run `40084859952`): сообщение из ring 3 на кириллице в serial
+  и LFB, `syscall/sysret round-trip OK`, затем IRQ1 продолжает работать.
+
 ### Восстановление репозитория (2026-10-24)
 - Сравнены `workspace_last` (M1) и `irna-os-main` (M0).
 - Подтверждено: M0-снимок полностью входит в M1-рабочую область.
@@ -180,10 +204,10 @@ key: 'a'
 
 ## Следующие шаги (M1)
 
-1. `syscall`/`sysret` + минимальный libc (`write`/`read`/`exit`).
-2. Кооперативный, затем вытесняющий планировщик.
+1. Кооперативный планировщик (переключение контекста, очередь задач).
+2. Вытесняющий планировщик по PIT.
 3. Раскладка EN/RU (шрифт с кириллицей уже в ядре).
-4. Мелочи LFB: курсор, цветовые атрибуты, масштаб по ширине экрана.
+4. `copy_from_user` и проверки указателей для syscall.
 
 ## Известные проблемы и ограничения
 
@@ -196,6 +220,11 @@ key: 'a'
   Основной путь — LFB, там кириллица работает.
 - Пул page tables в `paging.rs` — 8 таблиц (32 КиБ), без освобождения.
   Для M1 достаточно; полноценный VM-менеджер — в M2.
+- SYSCALL: статический стек и статическая переменная user RSP → без вложенных
+  syscall; `write` читает буфер пользователя напрямую (SMAP выключен,
+  `copy_from_user` — M2).
+- Тестовая user-программа — машинный код в `user.rs`; ELF-загрузчик и
+  адресные пространства — M2. NXE не включён, страницы исполняемы.
 - Полная сборка ISO требует Linux-тулчейн (GRUB, xorriso) → делается в CI.
 - На ноутбуке нет Rust/NASM; локально только QEMU для тестов.
 - Ноутбук: 4 ГБ RAM, Celeron N2840 → WSL2/VM не использовать.

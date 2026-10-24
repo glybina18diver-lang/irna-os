@@ -15,7 +15,7 @@
 - [~] Таймер (PIT 100 Гц) + cooperative планировщик  (PIT готов; планировщик — нет)
 - [x] Framebuffer-вывод (VGA text -> LFB)  (LFB 24/32 bpp, шрифт PT Mono 10×16, кириллица)
 - [x] PS/2 клавиатура (IRQ1, scancode set 1; раскладка EN/RU — после LFB)
-- [ ] syscall/sysret + libc-mini (write/read/exit)
+- [~] syscall/sysret + libc-mini (write/read/exit)  (write/exit + ring 3 проверены; read — вместе с планировщиком)
 - [ ] Вытесняющий многозадачный планировщик
 
 ## M2 — Процессы и файлы  [ ]
@@ -60,3 +60,4 @@
 - 2026-10-24: M1 — IDT (48 гейтов) + PIC remap 0x20..0x2F + PIT 100 Гц проверены в QEMU.
 - 2026-10-24: M1 — PS/2 клавиатура (IRQ1, scancode set 1) проверена в QEMU (`key: 'a'`).
 - 2026-10-24: M1 — LFB-консоль (24/32 bpp) + шрифт PT Mono 10×16 с кириллицей; скриншот QMP подтверждает вывод.
+- 2026-10-24: M1 — SYSCALL/SYSRET (STAR/LSTAR/FMASK), ring 3 smoke-тест write/exit, возврат в ядро.
