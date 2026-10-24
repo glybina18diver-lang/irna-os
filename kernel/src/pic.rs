@@ -99,6 +99,11 @@ pub fn eoi_master_only() {
     unsafe { outb(PIC1_CMD, OCW2_EOI) };
 }
 
+/// Прочитать текущую маску (1 = линия замаскирована).
+pub fn read_mask(master: bool) -> u8 {
+    unsafe { inb(if master { PIC1_DATA } else { PIC2_DATA }) }
+}
+
 /// Прочитать регистр ISR (какие линии реально запрошены) — для детекта
 /// ложных прерываний IRQ7/IRQ15.
 pub fn read_isr(master: bool) -> u8 {
