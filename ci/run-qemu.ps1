@@ -86,7 +86,7 @@ function Send-Qmp($obj) {
     try { $null = $qstream.Read($qbuf, 0, $qbuf.Length) } catch { }
 }
 
-if ($Key -ne "") {
+if ($Key -ne "" -or $Screenshot -ne "") {
     $qmp = New-Object System.Net.Sockets.TcpClient
     for ($i = 0; $i -lt 20; $i++) {
         try { $qmp.Connect("127.0.0.1", $QmpPort); break } catch { Start-Sleep -Milliseconds 250 }
@@ -103,9 +103,19 @@ if ($Key -ne "") {
 }
 $keySent = $false
 $shotSent = $false
-if ($Screenshot -ne "" -and $ScreenshotAt -le 0) { $ScreenshotAt = $KeyAt + 2 }
+$keySentAt = 0.0
+$acc = New-Object System.Text.StringBuilder
+if ($Screenshot -ne "" -and $ScreenshotAt -le 0) { $ScreenshotAt = 0 }
 
 while (((Get-Date) - $start).TotalSeconds -lt $Seconds) {
+    try {
+        $n = $stream.Read($buf, 0, $buf.Length)
+        if ($n -gt 0) {
+            $bytes.AddRange([byte[]]$buf[0..($n - 1)])
+            [void]$acc.Append([System.Text.Encoding]::ASCII.GetString($buf, 0, $n))
+        }
+    } catch [System.IO.IOException] { }
+
     $elapsed = ((Get-Date) - $start).TotalSeconds
 
     if (-not $sent -and $elapsed -ge $EnterAt) {
@@ -113,23 +123,28 @@ while (((Get-Date) - $start).TotalSeconds -lt $Seconds) {
         $stream.Write($cr, 0, 1); $stream.Flush()
         $sent = $true
     }
-    if ($qmp -and -not $keySent -and $elapsed -ge $KeyAt) {
+
+    # Клавиша отправляется не по абсолютному таймеру, а когда ядро уже в цикле
+    # эха ("keyboard echo:"): на слабом CPU загрузка с видеорежимом занимает
+    # заметно больше времени, и жёсткий KeyAt промахивался.
+    if ($qmp -and $Key -ne "" -and -not $keySent -and $elapsed -ge $KeyAt -and $acc.ToString().Contains("keyboard echo:")) {
         $events = @(
             @{ type = "key"; data = @{ down = $true; key = @{ type = "qcode"; data = $Key } } },
             @{ type = "key"; data = @{ down = $false; key = @{ type = "qcode"; data = $Key } } }
         )
         Send-Qmp @{ execute = "input-send-event"; arguments = @{ events = $events } }
         $keySent = $true
+        $keySentAt = $elapsed
     }
 
-    if ($Screenshot -ne "" -and -not $shotSent -and $elapsed -ge $ScreenshotAt) {
-        Send-Qmp @{ execute = "screendump"; arguments = @{ filename = $Screenshot; format = "png" } }
-        $shotSent = $true
+    if ($qmp -and $Screenshot -ne "" -and -not $shotSent) {
+        $ready = if ($Key -ne "") { $keySent -and $elapsed -ge ($keySentAt + 1) }
+                 else { $ScreenshotAt -gt 0 -and $elapsed -ge $ScreenshotAt }
+        if ($ready) {
+            Send-Qmp @{ execute = "screendump"; arguments = @{ filename = $Screenshot; format = "png" } }
+            $shotSent = $true
+        }
     }
-    try {
-        $n = $stream.Read($buf, 0, $buf.Length)
-        if ($n -gt 0) { $bytes.AddRange([byte[]]$buf[0..($n - 1)]) }
-    } catch [System.IO.IOException] { }
 }
 $client.Close()
 if ($qmp) { $qmp.Close() }
