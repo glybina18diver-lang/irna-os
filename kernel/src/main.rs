@@ -22,6 +22,8 @@ mod pic;
 mod pit;
 mod pmm;
 mod serial;
+mod syscall;
+mod user;
 mod vga;
 
 use brand::KERNEL_NAME;
@@ -171,15 +173,28 @@ pub extern "C" fn kernel_main() -> ! {
         serial::write_str("VGA text console OK\n");
     }
 
+    // --- 6. SYSCALL/SYSRET: MSR + smoke-тест из ring 3 ---
+    unsafe { syscall::init() };
+    serial::write_str("SYSCALL/SYSRET enabled (EFER.SCE, STAR/LSTAR/FMASK)\n");
+    console::println("syscall: write/exit, тест ring 3");
+
     serial::write_str(KERNEL_NAME);
-    serial::write_str(" kernel: M1 subsystems OK (bootinfo/PMM/GDT/IDT/PIC/PIT/heap/LFB)\n");
+    serial::write_str(" kernel: M1 subsystems OK (bootinfo/PMM/GDT/IDT/PIC/PIT/heap/LFB/syscall)\n");
     serial::write_str("==================================================\n");
+
+    // ring 3 -> syscall write -> syscall exit -> kernel_after_user -> echo_loop
+    user::run_test()
+}
+
+/// Цикл эха клавиатуры. Вызывается из kernel_after_user после возврата
+/// из ring 3 (и был бы вызван из kernel_main, если бы тест возвращался).
+pub fn echo_loop() -> ! {
     serial::write_str("keyboard echo: нажмите клавиши (serial + ");
-    serial::write_str(if fb_ok { "framebuffer" } else { "VGA" });
+    serial::write_str(if fb::is_active() { "framebuffer" } else { "VGA" });
     serial::write_str(")\n");
 
-    // Простой цикл ожидания: IRQ1 кладёт скан-коды в буфер, здесь мы их
-    // разбираем и эхо-выводим. hlt будит процессор по любому прерыванию.
+    // IRQ1 кладёт скан-коды в буфер, здесь мы их разбираем и эхо-выводим.
+    // hlt будит процессор по любому прерыванию.
     loop {
         while let Some(k) = keyboard::poll() {
             match k {

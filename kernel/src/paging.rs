@@ -11,6 +11,7 @@
 
 const P: u64 = 1 << 0; // present
 const RW: u64 = 1 << 1; // writable
+const US: u64 = 1 << 2; // user-accessible
 const PS: u64 = 1 << 7; // page size (2 МиБ в PD)
 
 const PAGE_2M: u64 = 2 * 1024 * 1024;
@@ -103,11 +104,73 @@ pub fn map_identity_2m(phys: u64, len: u64) -> bool {
     }
 
     // Сбросить TLB: перезагрузка CR3 (identity-map не меняется).
+    flush_tlb();
+    true
+}
+
+/// Сбросить TLB перезагрузкой CR3 (содержимое таблиц не меняется).
+fn flush_tlb() {
     unsafe {
         let cr3: u64;
         core::arch::asm!("mov {}, cr3", out(reg) cr3, options(nostack, preserves_flags));
         core::arch::asm!("mov cr3, {}", in(reg) cr3, options(nostack, preserves_flags));
     }
+}
+
+/// Отобразить 4-КиБ страницу как доступную из ring 3 (`U/S=1`).
+///
+/// Если соответствующая запись PD — huge-страница 2 МиБ (так устроена карта
+/// trampoline'а), она расщепляется: выделяется PT, заполняется identity-
+/// отображением того же диапазона, после чего нужная запись заменяется.
+/// Возвращает false, если таблиц не хватило или адрес вне pml4[0].
+pub fn map_user_4k(virt: u64, phys: u64, writable: bool) -> bool {
+    if virt & 0xFFF != 0 || phys & 0xFFF != 0 {
+        return false;
+    }
+    if (virt >> 39) & 0x1FF != 0 {
+        return false;
+    }
+    let pdpt_idx = ((virt >> 30) & 0x1FF) as usize;
+    let pd_idx = ((virt >> 21) & 0x1FF) as usize;
+    let pt_idx = ((virt >> 12) & 0x1FF) as usize;
+
+    unsafe {
+        let pdpt_tbl = pdpt_ptr();
+        let pde = core::ptr::read_volatile(pdpt_tbl.add(pdpt_idx));
+        if pde & P == 0 || pde & PS != 0 {
+            return false; // нет PD или 1-ГиБ huge: в M1 не поддерживаем
+        }
+        let pd = (pde & !0xFFF) as *mut u64;
+        let entry = core::ptr::read_volatile(pd.add(pd_idx));
+        if entry & P == 0 {
+            return false;
+        }
+
+        let pt: *mut u64;
+        if entry & PS != 0 {
+            match alloc_pt() {
+                Some(p) => pt = p,
+                None => return false,
+            }
+            let base = entry & !(PAGE_2M - 1);
+            for i in 0..PT_ENTRIES {
+                let pa = base + (i as u64) * 4096;
+                core::ptr::write_volatile(pt.add(i), pa | P | RW);
+            }
+            // флаги RW/US наследуются от huge-записи
+            let flags = entry & (RW | US);
+            core::ptr::write_volatile(pd.add(pd_idx), (pt as u64) | P | flags);
+        } else {
+            pt = (entry & !0xFFF) as *mut u64;
+        }
+
+        let mut flags = P | US;
+        if writable {
+            flags |= RW;
+        }
+        core::ptr::write_volatile(pt.add(pt_idx), (phys & !0xFFF) | flags);
+    }
+    flush_tlb();
     true
 }
 

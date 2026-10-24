@@ -1,8 +1,10 @@
 // kernel/src/gdt.rs — GDT + TSS (M1).
 // Trampoline (arch.asm) загружает минимальную GDT для far-jmp в long mode.
-// Здесь строится полная таблица: code64(0x08), data(0x10), user-code(0x18|3),
-// user-data(0x20|3), TSS(0x28, 16-байтный sys-дескриптор). Загрузка — через
-// asm-обвязку gdt_reload в arch.asm (far jmp корректнее писать в NASM).
+// Здесь строится полная таблица: null(0), code64(0x08), data(0x10),
+// user-data(0x18|3), user-code(0x20|3), TSS(0x28, 16-байтный sys-дескриптор).
+// Порядок user-data → user-code обязателен для SYSRET: процессор вычисляет
+// CS = STAR[63:48]+16, SS = STAR[63:48]+8, то есть data идёт перед code.
+// Загрузка — через asm-обвязку gdt_reload в arch.asm (far jmp в NASM надёжнее).
 
 use core::ptr::addr_of;
 
@@ -37,8 +39,8 @@ struct GdtData {
     null: u64,
     code64: u64,
     data: u64,
-    user_code: u64,
     user_data: u64,
+    user_code: u64,
     tss_lo: u64,
     tss_hi: u64,
     pub tss: Tss,
@@ -55,8 +57,8 @@ static mut GDT: GdtData = GdtData {
     null: 0,
     code64: code64_desc(),
     data: data_desc(),
-    user_code: code64_desc() | (3 << 45), // DPL=3
-    user_data: data_desc() | (3 << 45),   // DPL=3
+    user_data: data_desc() | (3 << 45),   // DPL=3, 0x18|3 = 0x1B
+    user_code: code64_desc() | (3 << 45), // DPL=3, 0x20|3 = 0x23
     tss_lo: 0,
     tss_hi: 0,
     tss: Tss::ZERO,
@@ -64,8 +66,8 @@ static mut GDT: GdtData = GdtData {
 
 pub const SEL_CODE64: u16 = 0x08;
 pub const SEL_DATA: u16 = 0x10;
-pub const SEL_USER_CODE: u16 = 0x18 | 3;
-pub const SEL_USER_DATA: u16 = 0x20 | 3;
+pub const SEL_USER_DATA: u16 = 0x18 | 3;
+pub const SEL_USER_CODE: u16 = 0x20 | 3;
 pub const SEL_TSS: u16 = 0x28;
 
 extern "C" {

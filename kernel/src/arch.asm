@@ -210,6 +210,110 @@ gdt_reload.after:                  ; NASM: локальные метки чер�
     xor ax, ax                     ; TSS-регистр не требует чистки
     ret
 
+; --- M1: syscall/sysret ------------------------------------------------------
+; syscall_entry — точка входа SYSCALL (MSR LSTAR). SYSCALL не переключает стек,
+; поэтому пользовательский RSP сохраняется в статическую переменную, а работа
+; продолжается на отдельном стеке ядра. Это осознанно однопоточное решение M1:
+; вложенные syscall из ring 0 не поддерживаются. В M2 заменим на per-CPU
+; GS-базу + swapgs (как в Linux).
+;
+; Кадр на стеке (сверху вниз): user_rsp, r11, rcx, rax, rbx, rbp, r12..r15,
+; rdi, rsi, rdx, r10, r8, r9. 16 push'ей сохраняют 16-байтное выравнивание,
+; поэтому `call` передаёт в Rust стек, соответствующий SysV.
+extern syscall_dispatch
+extern kernel_after_user
+
+global syscall_entry
+syscall_entry:
+    mov [rel syscall_user_rsp], rsp
+    mov rsp, [rel syscall_kernel_rsp]
+
+    push qword [rel syscall_user_rsp]   ; user RSP
+    push r11                            ; user RFLAGS (syscall его очистил по FMASK)
+    push rcx                            ; user RIP
+    push rax                            ; номер syscall / возвращаемое значение
+    push rbx
+    push rbp
+    push r12
+    push r13
+    push r14
+    push r15
+    push rdi
+    push rsi
+    push rdx
+    push r10
+    push r8
+    push r9
+
+    ; Linux-подобные аргументы: rdi=num, rsi=a1, rdx=a2, rcx=a3, r8=a4, r9=a5
+    mov r9, r8
+    mov r8, r10
+    mov rcx, rdx
+    mov rdx, rsi
+    mov rsi, rdi
+    mov rdi, rax
+    call syscall_dispatch
+
+    pop r9
+    pop r8
+    pop r10
+    pop rdx
+    pop rsi
+    pop rdi
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    pop rbp
+    pop rbx
+    pop rax
+    pop rcx
+    pop r11
+    mov rsp, [rsp]                      ; восстановить пользовательский RSP
+    sysretq
+
+; Возврат из sys_exit: пользовательский контекст больше не нужен. Переключаемся
+; на основной стек ядра и продолжаем в Rust (kernel_after_user).
+global syscall_exit_to_kernel
+syscall_exit_to_kernel:
+    mov rsp, stack_top
+    xor ebp, ebp
+    sti
+    jmp kernel_after_user
+
+; enter_user_mode(u64 rip /*rdi*/, u64 rsp /*rsi*/) — iretq в ring 3.
+; SS=0x1B (user data|3), CS=0x23 (user code|3), RFLAGS.IF=1.
+; IRETQ в другой CPL сам снимает SS:RSP со стека; регистры обнуляем, чтобы
+; не отдавать пользователю значения ядра.
+global enter_user_mode
+enter_user_mode:
+    mov ax, 0x1B
+    mov ds, ax
+    mov es, ax
+    mov fs, ax
+    mov gs, ax
+    push 0x1B
+    push rsi
+    push 0x202
+    push 0x23
+    push rdi
+    xor eax, eax
+    xor ebx, ebx
+    xor ecx, ecx
+    xor edx, edx
+    xor esi, esi
+    xor edi, edi
+    xor ebp, ebp
+    xor r8d, r8d
+    xor r9d, r9d
+    xor r10d, r10d
+    xor r11d, r11d
+    xor r12d, r12d
+    xor r13d, r13d
+    xor r14d, r14d
+    xor r15d, r15d
+    iretq
+
 ; --- M1: обработчики исключений (векторы 0..31) ------------------------------
 ; Каждая заглушка приводит стек к единому виду:
 ;   [rsp]    = vector
@@ -353,7 +457,18 @@ global df_stack_bottom_addr
 df_stack_bottom_addr: resb 4096
 global df_stack_top_addr
 df_stack_top_addr:
+; M1: отдельный стек для входа SYSCALL (16 КиБ) и сохранённый user RSP.
+align 16
+syscall_stack_bottom: resb 16384
+syscall_stack_top:
+align 8
+syscall_user_rsp: resq 1
 
+; Вершина syscall-стека — статическая константа, чтобы не инициализировать её
+; из Rust: указатель нужен уже в первой инструкции syscall_entry.
+section .data
+align 8
+syscall_kernel_rsp: dq syscall_stack_top
 
 section .rodata
 align 8
