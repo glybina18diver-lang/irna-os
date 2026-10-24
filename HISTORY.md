@@ -165,11 +165,19 @@ IDT + PIC remap, PIT-таймер, PS/2 клавиатура, затем framebu
 - Установлен портативный QEMU; Git и GitHub CLI уже портативные.
 - WSL2 и виртуальные машины на ноутбуке не используются.
 
-### Коммит
+### Коммиты
 - `2d9b88e` — M0+M1: восстановленная полная кодовая база.
+- `2155f34` — CI + документация для агентов.
+- `21ace7e` — состояние M1 и детали дефекта MBI.
+
+### CI и тест
+- GitHub Actions workflow отработал успешно (run `40062432124`).
+- Артефакт `irna-iso` скачан: `C:\Projects\OS\artifacts\irna.iso` ≈ 11.9 МБ.
+- ISO проверен в QEMU на ноутбуке: `M1 subsystems OK`, дефект MBI сохраняется.
+- Рабочий цикл: push → Actions → artifact → QEMU.
 
 ### Дальше
-M1: IDT/PIC, PIT, PS/2, framebuffer, syscall, планировщик.
+M1: закрыть MBI-дефект, затем IDT/PIC, PIT, PS/2, framebuffer, syscall, планировщик.
 
 ---
 
