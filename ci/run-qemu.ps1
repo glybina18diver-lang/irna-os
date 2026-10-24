@@ -4,9 +4,14 @@
 # Serial выводится через TCP (без буферизации, в отличие от `-serial file:`),
 # Enter в меню GRUB отправляется символом CR по serial.
 #
+# Клавиша для проверки IRQ1 отправляется через QMP `input-send-event`.
+# HMP-команда `sendkey` в headless-режиме (`-display none`) не доходит до
+# PS/2-клавиатуры, а QMP с явным событием — доходит.
+#
 # Использование:
 #   powershell -NoProfile -ExecutionPolicy Bypass -File ci\run-qemu.ps1
 #   powershell ... -File ci\run-qemu.ps1 -Iso C:\path\irna.iso -Seconds 30
+#   powershell ... -File ci\run-qemu.ps1 -Key ""   # без проверки клавиатуры
 #
 # Код возврата 0 — все ожидаемые маркеры найдены.
 
@@ -15,7 +20,7 @@ param(
     [int]$SerialPort = 4600,
     [int]$Seconds = 30,
     [int]$EnterAt = 6,
-    [int]$MonitorPort = 4601,
+    [int]$QmpPort = 4601,
     [string]$Key = "a",
     [int]$KeyAt = 6,
     [string]$Log = "$PSScriptRoot\..\artifacts\logs\qemu-serial.log"
@@ -30,17 +35,20 @@ if (-not (Test-Path $Iso)) { Write-Error "нет ISO: $Iso"; exit 1 }
 
 New-Item -ItemType Directory -Force (Split-Path $Log) | Out-Null
 Remove-Item $Log -Force -ErrorAction SilentlyContinue
+$errLog = $Log -replace "\.log$", ".qemu-err.log"
 
 Write-Host "==> QEMU (BIOS, headless, serial TCP): $Iso ($Seconds c)"
 
+# -WindowStyle Hidden + RedirectStandardError: QEMU не должен открывать
+# отдельное консольное окно на рабочем столе.
 $p = Start-Process -FilePath $qemu -ArgumentList @(
     "-cdrom", (Resolve-Path $Iso).Path,
     "-m", "512",
     "-display", "none",
     "-no-reboot",
     "-serial", "tcp:127.0.0.1:$SerialPort,server=on,wait=on",
-    "-monitor", "tcp:127.0.0.1:$MonitorPort,server=on,wait=off"
-) -PassThru
+    "-qmp", "tcp:127.0.0.1:$QmpPort,server=on,wait=off"
+) -PassThru -WindowStyle Hidden -RedirectStandardError $errLog
 Start-Sleep -Seconds 1
 
 $client = New-Object System.Net.Sockets.TcpClient
@@ -55,8 +63,6 @@ if (-not $connected) {
     exit 1
 }
 
-# Собираем сырые байты: serial — UTF-8, декодируем один раз в конце,
-# чтобы не разрезать многобайтные символы (кириллицу) между чтениями.
 $stream = $client.GetStream()
 $stream.ReadTimeout = 200
 $bytes = New-Object System.Collections.Generic.List[byte]
@@ -64,48 +70,67 @@ $buf = New-Object byte[] 8192
 $start = Get-Date
 $sent = $false
 
-# Монитор QEMU: через него нажимаем клавишу (PS/2), чтобы проверить IRQ1.
-$mon = $null
-$mstream = $null
+# --- QMP: отправка клавиши (проверка IRQ1) ---
+$qmp = $null
+$qstream = $null
+$qbuf = New-Object byte[] 65536
+
+function Send-Qmp($obj) {
+    $json = $obj | ConvertTo-Json -Compress -Depth 8
+    $b = [Text.Encoding]::ASCII.GetBytes($json + "`n")
+    $qstream.Write($b, 0, $b.Length)
+    $qstream.Flush()
+    Start-Sleep -Milliseconds 150
+    try { $null = $qstream.Read($qbuf, 0, $qbuf.Length) } catch { }
+}
+
 if ($Key -ne "") {
-    $mon = New-Object System.Net.Sockets.TcpClient
+    $qmp = New-Object System.Net.Sockets.TcpClient
     for ($i = 0; $i -lt 20; $i++) {
-        try { $mon.Connect("127.0.0.1", $MonitorPort); break } catch { Start-Sleep -Milliseconds 250 }
+        try { $qmp.Connect("127.0.0.1", $QmpPort); break } catch { Start-Sleep -Milliseconds 250 }
     }
-    if ($mon.Connected) {
-        $mstream = $mon.GetStream()
-        $mstream.ReadTimeout = 200
+    if ($qmp.Connected) {
+        $qstream = $qmp.GetStream()
+        $qstream.ReadTimeout = 500
+        try { $null = $qstream.Read($qbuf, 0, $qbuf.Length) } catch { }  # приветствие QMP
+        Send-Qmp @{ execute = "qmp_capabilities" }
     } else {
-        $mon = $null
-        Write-Host "    WARN: монитор QEMU недоступен, клавиша не будет нажата"
+        $qmp = $null
+        Write-Host "    WARN: QMP недоступен, клавиша не будет нажата"
     }
 }
 $keySent = $false
 
 while (((Get-Date) - $start).TotalSeconds -lt $Seconds) {
-    if (-not $sent -and ((Get-Date) - $start).TotalSeconds -ge $EnterAt) {
+    $elapsed = ((Get-Date) - $start).TotalSeconds
+
+    if (-not $sent -and $elapsed -ge $EnterAt) {
         $cr = [byte[]](0x0D)
         $stream.Write($cr, 0, 1); $stream.Flush()
         $sent = $true
     }
-    if ($mon -and -not $keySent -and ((Get-Date) - $start).TotalSeconds -ge $KeyAt) {
-        $cmd = [Text.Encoding]::ASCII.GetBytes("sendkey $Key`n")
-        $mstream.Write($cmd, 0, $cmd.Length); $mstream.Flush()
+    if ($qmp -and -not $keySent -and $elapsed -ge $KeyAt) {
+        $events = @(
+            @{ type = "key"; data = @{ down = $true; key = @{ type = "qcode"; data = $Key } } },
+            @{ type = "key"; data = @{ down = $false; key = @{ type = "qcode"; data = $Key } } }
+        )
+        Send-Qmp @{ execute = "input-send-event"; arguments = @{ events = $events } }
         $keySent = $true
     }
+
     try {
         $n = $stream.Read($buf, 0, $buf.Length)
         if ($n -gt 0) { $bytes.AddRange([byte[]]$buf[0..($n - 1)]) }
     } catch [System.IO.IOException] { }
 }
 $client.Close()
-if ($mon) { $mon.Close() }
+if ($qmp) { $qmp.Close() }
 $exited = $p.HasExited
 if (-not $exited) { $p.Kill() }
 
+# Serial — UTF-8; декодируем один раз, чтобы не разрезать многобайтные символы.
 $out = [System.Text.Encoding]::UTF8.GetString($bytes.ToArray())
 Set-Content -Path $Log -Value $out -Encoding UTF8
-# Читаемая копия без ANSI-последовательностей GRUB.
 $clean = $out -replace "\x1b\[[0-9;?]*[A-Za-z]", ""
 Set-Content -Path ($Log -replace "\.log$", ".clean.log") -Value $clean -Encoding UTF8
 
@@ -134,5 +159,5 @@ foreach ($c in $checks) {
 
 Write-Host "==> лог: $Log"
 if ($fail -ne 0) { exit 1 }
-Write-Host "==> SUCCESS: ISO загрузился, IDT работает."
+Write-Host "==> SUCCESS: ISO загрузился, прерывания и клавиатура работают."
 exit 0
