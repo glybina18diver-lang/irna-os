@@ -166,7 +166,8 @@ $checks = @(
     @{ Name = "PS/2 клавиатура";     Pattern = "PS/2 keyboard ready" },
     @{ Name = "framebuffer (LFB)";   Pattern = "framebuffer console OK" },
     @{ Name = "SYSCALL/SYSRET";      Pattern = "SYSCALL/SYSRET enabled" },
-    @{ Name = "ring 3 round-trip";   Pattern = "syscall/sysret round-trip OK" }
+    @{ Name = "ring 3 round-trip";   Pattern = "syscall/sysret round-trip OK" },
+    @{ Name = "планировщик";         Pattern = "sched: tasks done\s*=\s*3" }
 )
 
 if ($Key -ne "") {

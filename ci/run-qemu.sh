@@ -52,7 +52,11 @@ case "$MODE" in
       echo "==> FAIL: syscall/sysret не работает (нет 'syscall/sysret round-trip OK')"
       exit 1
     fi
-    echo "==> SUCCESS: ядро «ИрНа» загрузилось, MBI memory map разобрана, LFB и syscall работают."
+    if ! grep -aq "sched: tasks done = 3" "$ROOT/build/qemu-serial.log"; then
+      echo "==> FAIL: планировщик не выполнил 3 задачи (нет 'sched: tasks done = 3')"
+      exit 1
+    fi
+    echo "==> SUCCESS: ядро «ИрНа» загрузилось, MBI memory map разобрана, LFB, syscall и планировщик работают."
     ;;
   interactive)
     echo "==> QEMU (BIOS, окно VGA + serial в терминале). Ctrl-A x — выход."
