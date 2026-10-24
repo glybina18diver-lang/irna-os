@@ -5,7 +5,7 @@
 **Дата:** 2026-10-24
 **Этап:** M1 (в работе)
 **Ветка:** `main`
-**Последний коммит:** `5bd59c4` — paging: U/S на всех уровнях для user-страниц
+**Последний коммит:** `9922d60` — планировщик: проверка 3 задач в CI
 
 ## Что сделано
 
@@ -46,6 +46,8 @@
   `write`/`exit` (Linux-подобный ABI), `read` → `-ENOSYS`.
 - `kernel/src/user.rs` — smoke-тест ring 3: страницы кода/стека с U/S,
   `write` кириллицей и `exit`, возврат в ядро.
+- `kernel/src/sched.rs` — кооперативный планировщик: 8 задач, round-robin,
+  `switch_context` (callee-saved + RSP), `yield_now`/`task_exit`.
 - `kernel/src/arch.asm` — trampoline, identity map 0..1 ГиБ (huge pages,
   MMIO read-only), `gdt_reload`, стеки TSS.RSP0/IST1, information-request тег
   (type=1), request-тег framebuffer (type=5, 1024×768×32), копия MBI
@@ -88,7 +90,15 @@ framebuffer console OK (800x600, 80x37 chars)
 kernel heap alloc OK (100 bytes)
 framebuffer console OK
 SYSCALL/SYSRET enabled (EFER.SCE, STAR/LSTAR/FMASK)
-ИрНа kernel: M1 subsystems OK (bootinfo/PMM/GDT/IDT/PIC/PIT/heap/LFB/syscall)
+task B: tick 1
+task C: tick 1
+task A: tick 1
+...
+task B: done
+task C: done
+task A: done
+sched: tasks done = 3
+ИрНа kernel: M1 subsystems OK (bootinfo/PMM/GDT/IDT/PIC/PIT/heap/LFB/syscall/sched)
 ==================================================
 ring 3: iretq в user mode, код по адресу 0x400000, стек 0x403000
 Привет из ring 3! syscall/sysret OK
@@ -188,6 +198,18 @@ key: 'a'
 - Проверено (run `40084859952`): сообщение из ring 3 на кириллице в serial
   и LFB, `syscall/sysret round-trip OK`, затем IRQ1 продолжает работать.
 
+### Кооперативный планировщик (2026-10-24)
+- `sched.rs`: 8 слотов, стеки 16 КиБ в `.bss`, состояния Free/Ready/Dead,
+  round-robin. `spawn` собирает кадр (паддинг + адрес возврата + rbp/rbx/r12..r15),
+  чтобы первый `ret` в `switch_context` попал в задачу с правильным
+  выравниванием стека.
+- `switch_context` (arch.asm): callee-saved SysV + обмен RSP.
+- `yield_now` возвращает управление диспетчеру, `task_exit` помечает задачу
+  Dead; `run()` возвращает число завершённых.
+- Проверено (run `40085331878`): 3 задачи × 3 тика, `sched: tasks done = 3`,
+  затем ring 3 и IRQ1 работают.
+- Ограничения: без вытеснения, приоритетов и смены CR3 — это M2.
+
 ### Восстановление репозитория (2026-10-24)
 - Сравнены `workspace_last` (M1) и `irna-os-main` (M0).
 - Подтверждено: M0-снимок полностью входит в M1-рабочую область.
@@ -204,10 +226,9 @@ key: 'a'
 
 ## Следующие шаги (M1)
 
-1. Кооперативный планировщик (переключение контекста, очередь задач).
-2. Вытесняющий планировщик по PIT.
-3. Раскладка EN/RU (шрифт с кириллицей уже в ядре).
-4. `copy_from_user` и проверки указателей для syscall.
+1. Вытесняющий планировщик по PIT (переключение из IRQ0).
+2. Раскладка EN/RU (шрифт с кириллицей уже в ядре).
+3. `copy_from_user` и проверки указателей для syscall.
 
 ## Известные проблемы и ограничения
 
@@ -225,6 +246,8 @@ key: 'a'
   `copy_from_user` — M2).
 - Тестовая user-программа — машинный код в `user.rs`; ELF-загрузчик и
   адресные пространства — M2. NXE не включён, страницы исполняемы.
+- Планировщик кооперативный: без вытеснения, приоритетов и смены CR3;
+  все задачи — функции ядра, стеки статические (8 × 16 КиБ).
 - Полная сборка ISO требует Linux-тулчейн (GRUB, xorriso) → делается в CI.
 - На ноутбуке нет Rust/NASM; локально только QEMU для тестов.
 - Ноутбук: 4 ГБ RAM, Celeron N2840 → WSL2/VM не использовать.
